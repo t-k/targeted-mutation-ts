@@ -23,9 +23,22 @@ function isIdentPart(c) {
   return isIdentStart(c) || (c >= 48 && c <= 57);
 }
 
+let _tokCacheSrc = null;
+let _tokCacheJsx = false;
+let _tokCacheRes = null;
+
 // Lightweight JS/TS lexer producing token spans (skipping comments and whitespace).
 // Returns null on unterminated comment/string/template/regex.
 function tokenize(source, isJsx = false) {
+  if (source === _tokCacheSrc && isJsx === _tokCacheJsx) return _tokCacheRes;
+  const res = tokenizeUncached(source, isJsx);
+  _tokCacheSrc = source;
+  _tokCacheJsx = isJsx;
+  _tokCacheRes = res;
+  return res;
+}
+
+function tokenizeUncached(source, isJsx = false) {
   const tokens = [];
   const braces = [];
   const parens = [];
@@ -235,6 +248,69 @@ function hasNewlineBetween(source, aEnd, bStart) {
 // (excluding `export as namespace`, `import(...)`, `import.meta`, and anything inside `declare namespace/module`).
 function hasTopLevelModuleSyntax(source) {
   if (!/\b(?:import|export)\b/.test(source)) return false;
+  // Fast path: check leading top-level statement(s) after shebang/whitespace/comments.
+  // Almost every real-world ES module starts with `import ...` or `export ...` near the top,
+  // avoiding full-file tokenization on multi-MB files.
+  const n = source.length;
+  let p = 0;
+  if (source.startsWith('#!')) {
+    while (p < n && source.charCodeAt(p) !== 10 && source.charCodeAt(p) !== 13) p++;
+  }
+  while (p < n) {
+    const c = source.charCodeAt(p);
+    if (c === 32 || c === 9 || c === 10 || c === 13 || c === 0xfeff) { p++; continue; }
+    if (c === 47 && source.charCodeAt(p + 1) === 47) {
+      const nl = source.indexOf('\n', p + 2);
+      p = nl < 0 ? n : nl + 1;
+      continue;
+    }
+    if (c === 47 && source.charCodeAt(p + 1) === 42) {
+      const end = source.indexOf('*/', p + 2);
+      if (end < 0) return false;
+      p = end + 2;
+      continue;
+    }
+    if (c === 34 || c === 39) {
+      // Skip leading directive string like "use strict";
+      const q = c;
+      p++;
+      while (p < n && source.charCodeAt(p) !== q) {
+        if (source.charCodeAt(p) === 92) p += 2;
+        else if (source.charCodeAt(p) === 10 || source.charCodeAt(p) === 13) break;
+        else p++;
+      }
+      if (p < n && source.charCodeAt(p) === q) {
+        p++;
+        while (p < n && (source.charCodeAt(p) === 32 || source.charCodeAt(p) === 9 || source.charCodeAt(p) === 59)) p++;
+        continue;
+      }
+      break;
+    }
+    if (source.startsWith('import', p) && !isIdentPart(source.charCodeAt(p + 6))) {
+      let q = p + 6;
+      while (q < n && (source.charCodeAt(q) === 32 || source.charCodeAt(q) === 9 || source.charCodeAt(q) === 10 || source.charCodeAt(q) === 13)) q++;
+      const nc = source.charCodeAt(q);
+      // Static import: `import {`, `import *`, `import "`, `import '`, or `import ident from/comma`
+      // (excluding `import type`, `import(`, `import.`, `import ident =`, and `import ident /*...*/`).
+      if (nc === 123 || nc === 42 || nc === 34 || nc === 39) return true;
+      if (isIdentStart(nc) && !(source.startsWith('type', q) && !isIdentPart(source.charCodeAt(q + 4)))) {
+        let r = q + 1;
+        while (r < n && isIdentPart(source.charCodeAt(r))) r++;
+        while (r < n && (source.charCodeAt(r) === 32 || source.charCodeAt(r) === 9)) r++;
+        if (source.charCodeAt(r) === 44 || (source.startsWith('from', r) && !isIdentPart(source.charCodeAt(r + 4)))) return true;
+      }
+    } else if (source.startsWith('export', p) && !isIdentPart(source.charCodeAt(p + 6))) {
+      let q = p + 6;
+      while (q < n && (source.charCodeAt(q) === 32 || source.charCodeAt(q) === 9 || source.charCodeAt(q) === 10 || source.charCodeAt(q) === 13)) q++;
+      const nc = source.charCodeAt(q);
+      // Static export (excluding `export as`, `export =`, `export declare`)
+      if (nc === 123 || nc === 42) return true;
+      if (isIdentStart(nc) &&
+          !(source.startsWith('as', q) && !isIdentPart(source.charCodeAt(q + 2))) &&
+          !(source.startsWith('declare', q) && !isIdentPart(source.charCodeAt(q + 7)))) return true;
+    }
+    break;
+  }
   const tokens = tokenize(source);
   if (!tokens) return false;
   let depth = 0;
@@ -274,7 +350,12 @@ function hasTopLevelModuleSyntax(source) {
 // `export = expr` -> `module.exports = expr`, and erases `export as namespace X;`
 // in `module: 'preserve'` mode.
 function preprocessPreserveCjs(source, isJsx = false) {
-  if (!source.includes('require') && !source.includes('export')) {
+  const maybeExportEq = source.includes('export') && (
+    /\bexport(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*(?:=(?![=>])|as\b)/.test(source)
+  );
+  const maybeImportReq = source.includes('require') && source.includes('import') &&
+    /\bimport(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)+[A-Za-z_$][\w$]*(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*=(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*require\b/.test(source);
+  if (!maybeExportEq && !maybeImportReq) {
     return { code: source, changed: false, hasCjsModule: false };
   }
   const tokens = tokenize(source, isJsx);
@@ -357,7 +438,10 @@ function preprocessPreserveCjs(source, isJsx = false) {
 // Validates and erases top-level `declare module ... { ... }` and `declare namespace ... { ... }` blocks.
 // Uses Node's stripTypeScriptTypes on each block to guarantee zero false positives on syntax errors.
 function eraseValidatedAmbientBlocks(source, isJsx = false) {
-  if (!source.includes('declare')) return source;
+  if (!source.includes('declare') ||
+      !/\bdeclare(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/)+(?:module|namespace|global)\b/.test(source)) {
+    return source;
+  }
   const tokens = tokenize(source, isJsx);
   if (!tokens) return null;
   const edits = [];
@@ -482,7 +566,8 @@ function hasForBracketIn(source) {
 // Token-based rewrite of top-level `declare module Name {` -> `declare namespace Name {` and
 // `declare module "str" {` -> `declare namespace __tmt_amb__ {` outside strings/templates/comments/regexes.
 function normalizeAmbientModules(source) {
-  if (!source.includes('declare') || !source.includes('module')) return source;
+  if (!source.includes('declare') || !source.includes('module') ||
+      !/\bdeclare(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/)+module\b/.test(source)) return source;
   const toks = tokenize(source);
   if (!toks) return source;
   const edits = [];
@@ -954,12 +1039,13 @@ function isTypeOnlyNamespaceBody(bodySource) {
 // into 100% TypeScript-6.0.3-exact IIFE JavaScript.
 // Returns `{ code, changed }` or `null` if any construct is too complex or invalid.
 function lowerNamespacesAndEnums(source, isJsx = false) {
-  const allowNs = isJsx || /\bmodule[ \t]+[A-Za-z_$]/.test(source) || source.includes('// @') || source.includes('//@') || !hasTopLevelModuleSyntax(source);
-  const allowComputedEnum = !isJsx && !hasTopLevelModuleSyntax(source);
   if (!/\b(?:module|enum)\b/.test(source) && !/\bnamespace[ \t]+[A-Za-z_$]/.test(source) &&
       !/\bimport[ \t]+[A-Za-z_$][\w$]*[ \t]*=/.test(source)) {
     return { code: source, changed: false };
   }
+  const isTopMod = hasTopLevelModuleSyntax(source);
+  const allowNs = isJsx || /\bmodule[ \t]+[A-Za-z_$]/.test(source) || source.includes('// @') || source.includes('//@') || !isTopMod;
+  const allowComputedEnum = !isJsx && !isTopMod;
   const tokens = tokenize(source, isJsx);
   if (!tokens) return null;
 
@@ -987,11 +1073,51 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
   // Quick syntax validation for non-JSX files: rewrite `module Ident {` -> `namespace Ident {` and
   // `import a = X.Y` -> `var a = X.Y` and validate with Node SWC transform ONLY to reject syntax errors
   // before lowering (prevents false positives on TS-error files). JSX files are validated by addon.lower.
+  // For large files (> 16 KB), validate only the extracted enum/namespace/module slices here, since the
+  // rest of the file is validated unchanged by `strip()` immediately after lowering.
+  // When using slice-level validation, disable labeled `label: interface/type` erasure so no unvalidated
+  // syntax outside the extracted slices can ever be erased or rewritten.
   let allowTypeOnlyBlank = true;
+  let usedSliceValidation = false;
   if (!isJsx) {
-    let valSrc = source.replace(/(?<=^|[;\r\n{])[ \t]*((?:export[ \t]+|declare[ \t]+|async[ \t]+|public[ \t]+|private[ \t]+|protected[ \t]+)*)module(?=[ \t]+[A-Za-z_$][\w$.]*\s*\{)/g, '$1namespace');
+    let valInput = source;
+    if (source.length > 16384) {
+      const slices = [];
+      let d = 0;
+      let hasLabeledType = false;
+      for (let ti = 0; ti < tokens.length; ti++) {
+        const tk = tokens[ti];
+        if (tk.text === '{') { d++; continue; }
+        if (tk.text === '}') { if (d > 0) d--; continue; }
+        if (tk.type !== 'id') continue;
+        if (d === 0 && (tk.text === 'type' || tk.text === 'interface') &&
+            tokens[ti - 1]?.text === ':' && tokens[ti - 2]?.type === 'id') {
+          hasLabeledType = true;
+          break;
+        }
+        if ((tk.text === 'enum' || ((tk.text === 'namespace' || tk.text === 'module') && d === 0)) &&
+            tokens[ti - 1]?.text !== '.' && tokens[ti + 1]?.type === 'id') {
+          let k = ti + 2;
+          while (tokens[k]?.text === '.' && tokens[k + 1]?.type === 'id') k += 2;
+          if (tokens[k]?.text === '{') {
+            const close = findMatchingBrace(tokens, k);
+            if (close < 0) return null;
+            let sIdx = ti;
+            if (sIdx > 0 && (tokens[sIdx - 1].text === 'const' || tokens[sIdx - 1].text === 'declare')) sIdx--;
+            slices.push(source.slice(tokens[sIdx].start, tokens[close].end));
+            ti = close;
+          }
+        }
+      }
+      if (!hasLabeledType) {
+        valInput = slices.join('\n;\n');
+        usedSliceValidation = true;
+      }
+    }
+    let valSrc = valInput.replace(/(?<=^|[;\r\n{])[ \t]*((?:export[ \t]+|declare[ \t]+|async[ \t]+|public[ \t]+|private[ \t]+|protected[ \t]+)*)module(?=[ \t]+[A-Za-z_$][\w$.]*\s*\{)/g, '$1namespace');
     valSrc = valSrc.replace(/(?<=^|[;\r\n{])[ \t]*((?:export[ \t]+)*)(?:async|public|private|protected)[ \t]+(?=(?:namespace|enum)[ \t]+[A-Za-z_$])/g, '$1');
     valSrc = valSrc.replace(/(?<=^|[;\r\n{])[ \t]*(?:declare[ \t]+)?(?:export[ \t]+)?(?:(?:public|private|protected)[ \t]+)?import(?=[ \t]+[A-Za-z_$][\w$]*[ \t]*=[ \t]*(?!require\b|module\b)[A-Za-z_$][\w$.]*(?![ \t]*\())/g, 'var');
+    if (valSrc) {
     try {
       stripTypeScriptTypes(valSrc, { mode: 'transform' });
     } catch (err) {
@@ -1028,6 +1154,7 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
         em.includes('Expected ident');
       if (!relaxable) return null;
       allowTypeOnlyBlank = false;
+    }
     }
   }
 
@@ -1198,7 +1325,7 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
       }
 
         // Labeled `label: interface I {}` / `label: type T = ...` -> `label: ;`
-        if (isLabeled && !isExport && toks[idx].type === 'id' && (toks[idx].text === 'interface' || toks[idx].text === 'type') &&
+        if (!usedSliceValidation && isLabeled && !isExport && toks[idx].type === 'id' && (toks[idx].text === 'interface' || toks[idx].text === 'type') &&
             toks[idx + 1]?.type === 'id' && !hasNewlineBetween(src, toks[idx].end, toks[idx + 1].start)) {
           if (toks[idx].text === 'interface') {
             let k = idx + 2;
@@ -1812,9 +1939,50 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
 // to ESNext TypeScript output (`x;\nconstructor(x = 1) { this.x = x; ... }`).
 // Conservatively declines constructors containing `super(`, decorators, or `override` modifiers.
 function lowerParameterProperties(source) {
-  if (!/\bconstructor\s*\(/.test(source) || !/\b(?:public|private|protected|readonly|override)\b/.test(source)) {
+  if (!source.includes('constructor') || !/\b(?:public|private|protected|readonly|override)\b/.test(source)) {
     return { code: source, changed: false };
   }
+  // Quick scan of each `constructor(` parameter list before tokenizing the whole file.
+  const ctorRe = /\bconstructor\s*\(/g;
+  let maybeParamProp = false;
+  for (let m; (m = ctorRe.exec(source)) !== null;) {
+    let p = m.index + m[0].length, depth = 1;
+    let ambiguous = false;
+    while (p < source.length && depth > 0) {
+      const c = source[p];
+      if (c === '(') depth++;
+      else if (c === ')') depth--;
+      else if (c === '"' || c === "'") {
+        p++;
+        while (p < source.length && source[p] !== c) { if (source[p] === '\\') p += 2; else p++; }
+      } else if (c === '`') {
+        // Template literal with possible `${...}`: delegate to full tokenizer.
+        ambiguous = true;
+        break;
+      } else if (c === '/') {
+        const next = source[p + 1];
+        if (next === '/') {
+          p += 2;
+          while (p < source.length && source[p] !== '\n' && source[p] !== '\r' && source[p] !== '\u2028' && source[p] !== '\u2029') p++;
+          continue;
+        }
+        if (next === '*') {
+          const end = source.indexOf('*/', p + 2);
+          p = end < 0 ? source.length : end + 2;
+          continue;
+        }
+        // Possible regex literal like `/\)/` or `/[)]/`: delegate to full tokenizer.
+        ambiguous = true;
+        break;
+      }
+      p++;
+    }
+    if (ambiguous || /\b(?:public|private|protected|readonly|override)\b/.test(source.slice(m.index + m[0].length, p))) {
+      maybeParamProp = true;
+      break;
+    }
+  }
+  if (!maybeParamProp) return { code: source, changed: false };
   const toks = tokenize(source);
   if (!toks) return null;
   const edits = [];
@@ -2056,8 +2224,109 @@ function lowerParameterProperties(source) {
 // Erases non-ES-Stage-3 decorators that TypeScript erases when `experimentalDecorators` is false:
 // parameter decorators `(@dec x)`, and decorators on `static {`, `constructor`, `enum`, `function`,
 // `interface`, `type`, `var`, `let`, `const`, `namespace`, `module`, `import`.
+// Fast scan: returns true iff `@` appears outside line/block comments and string/template literals
+// (or conservatively returns true if a regex literal could mask `//` or `/*` before an `@`).
+function hasAtOutsideCommentsAndStrings(source) {
+  let nextAt = source.indexOf('@');
+  if (nextAt < 0) return false;
+  const n = source.length;
+  const tplBraces = [];
+  let sawSlashOnLine = false;
+  for (let i = 0; i < n; ) {
+    const c = source.charCodeAt(i);
+    if (c === 64) return true; // '@'
+    if (c === 10 || c === 13 || c === 0x2028 || c === 0x2029) {
+      sawSlashOnLine = false;
+      i++;
+      continue;
+    }
+    if (c === 47) { // '/'
+      const next = source.charCodeAt(i + 1);
+      if (next === 47) {
+        if (sawSlashOnLine) {
+          // Could be inside a regex literal like `/[//]/; @dec`: bail out if an `@` exists on this line.
+          if (nextAt < i) nextAt = source.indexOf('@', i);
+          if (nextAt < 0) return false;
+          let eol = i + 2;
+          while (eol < n) {
+            const lc = source.charCodeAt(eol);
+            if (lc === 10 || lc === 13 || lc === 0x2028 || lc === 0x2029) break;
+            eol++;
+          }
+          if (nextAt < eol) return true;
+        }
+        i += 2;
+        while (i < n) {
+          const lc = source.charCodeAt(i);
+          if (lc === 10 || lc === 13 || lc === 0x2028 || lc === 0x2029) break;
+          i++;
+        }
+        continue;
+      }
+      if (next === 42) {
+        if (sawSlashOnLine) return true; // Could be `/[/*]/`: delegate to full tokenizer.
+        const end = source.indexOf('*/', i + 2);
+        if (end < 0) return true;
+        i = end + 2;
+        continue;
+      }
+      sawSlashOnLine = true;
+      i++;
+      continue;
+    }
+    if (c === 34 || c === 39) { // '"' or "'"
+      i++;
+      while (i < n && source.charCodeAt(i) !== c) {
+        const sc = source.charCodeAt(i);
+        if (sc === 64 && sawSlashOnLine) return true; // Regex like `/["]/; @dec ... ""`
+        if (sc === 92) i += 2;
+        else if (sc === 10 || sc === 13 || sc === 0x2028 || sc === 0x2029) return true;
+        else i++;
+      }
+      i++;
+      continue;
+    }
+    if (c === 123) { // '{'
+      if (tplBraces.length > 0) tplBraces[tplBraces.length - 1]++;
+      i++;
+      continue;
+    }
+    if (c === 125 && tplBraces.length > 0) { // '}'
+      if (tplBraces[tplBraces.length - 1] > 0) {
+        tplBraces[tplBraces.length - 1]--;
+        i++;
+        continue;
+      }
+      tplBraces.pop();
+      i++;
+      while (i < n) {
+        const tc = source.charCodeAt(i);
+        if (tc === 92) { i += 2; continue; }
+        if (tc === 96) { i++; break; }
+        if (tc === 36 && source.charCodeAt(i + 1) === 123) { tplBraces.push(0); i += 2; break; }
+        i++;
+      }
+      continue;
+    }
+    if (c === 96) { // '`'
+      i++;
+      while (i < n) {
+        const tc = source.charCodeAt(i);
+        if (tc === 64 && sawSlashOnLine) return true; // Regex like ``/[`]/; @dec ... ``
+        if (tc === 92) { i += 2; continue; }
+        if (tc === 96) { i++; break; }
+        if (tc === 36 && source.charCodeAt(i + 1) === 123) { tplBraces.push(0); i += 2; break; }
+        i++;
+      }
+      continue;
+    }
+    i++;
+  }
+  return false;
+}
+
 function eraseNonEsDecorators(source) {
-  if (!source.includes('@')) return { code: source, changed: false };
+  if (!hasAtOutsideCommentsAndStrings(source)) return { code: source, changed: false };
   const toks = tokenize(source);
   if (!toks) return null;
   const edits = [];
@@ -8200,7 +8469,8 @@ function validPureJsWithSwcRelaxations(source, errMsg, depth = 0) {
 }
 
 module.exports = {
-  tokenize,
+  tokenize: tokenizeUncached,
+  tokenizeReadOnly: tokenize,
   hasForBracketIn,
   normalizeAmbientModules,
   hasTopLevelModuleSyntax,

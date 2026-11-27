@@ -714,7 +714,28 @@ function unixHashbang(result) {
   return { ...result, code: code.slice(0, end) + (code.charCodeAt(end + 1) === 10 ? '' : '\n') + code.slice(end + 1) };
 }
 
+let _stripFn;
+let _lastStripSrc = null;
+let _lastStripFile = null;
+let _lastStripRes = null;
+
+function cloneStripResult(res) {
+  return {
+    ...res,
+    diagnostics: res.diagnostics.length === 0 ? [] : res.diagnostics.map(d => ({ ...d })),
+  };
+}
+
 function strip(source, file) {
+  if (source === _lastStripSrc && file === _lastStripFile) return cloneStripResult(_lastStripRes);
+  const res = stripUncached(source, file);
+  _lastStripSrc = source;
+  _lastStripFile = file;
+  _lastStripRes = res;
+  return cloneStripResult(res);
+}
+
+function stripUncached(source, file) {
   try {
     // A hashbang behind a byte order mark is not at the start of the file.
     if (source.startsWith('\ufeff#!')) {
@@ -723,7 +744,7 @@ function strip(source, file) {
         message: "'#!' can only be used at the start of a file", start: 1, end: 3,
       }]);
     }
-    const code = require('node:module').stripTypeScriptTypes(source);
+    const code = (_stripFn ??= require('node:module').stripTypeScriptTypes)(source);
     if (source.includes('`') && source.includes('!') && markedOptionalTag(source, code)) {
       return fail('node-strip', [{
         file, code: 'AMBIGUOUS_TYPE_ERASURE', severity: 'error',
@@ -757,10 +778,14 @@ function strip(source, file) {
 
 function verifyRuntimeExports(result, file, addon, bytes) {
   if (!/\bexport(?:\s|\/\*[^]*?\*\/|\/\/[^\r\n\u2028\u2029]*)*\{/.test(result.code)) return result;
-  // Skip Pulse's unboundExport check when every `export { ... }` is either empty (`export {}`) or a
-  // re-export (`export { ... } from "..."`), since neither can reference an unbound local binding.
-  // Use the regex/template-aware tokenizer so `//` inside regexes or templates is never treated as a comment.
-  const toks = require('./compiler-ts-lower.cjs').tokenize(result.code);
+  const buf = bytes ?? Buffer.from(result.code);
+  const checker = addon ?? loadModuleAddon();
+  if (buf.length <= 1048576 && !checker?.unboundExport?.(buf)) return result;
+  // Skip Pulse's unboundExport rejection (and oversized >1MiB fallback) when every `export { ... }` is
+  // either empty (`export {}`) or a re-export (`export { ... } from "..."`), since neither can reference
+  // an unbound local binding. Use the regex/template-aware tokenizer so `//` inside regexes or templates
+  // is never treated as a comment.
+  const toks = require('./compiler-ts-lower.cjs').tokenizeReadOnly(result.code);
   if (toks) {
     let hasLocalNonEmptyExport = false;
     for (let i = 0; i < toks.length; i++) {
@@ -781,8 +806,11 @@ function verifyRuntimeExports(result, file, addon, bytes) {
     }
     if (!hasLocalNonEmptyExport) return result;
   }
-  const checker = addon ?? loadModuleAddon();
-  if (!checker?.unboundExport?.(bytes ?? Buffer.from(result.code))) return result;
+  if (buf.length > 1048576) {
+    if (result.backend === 'typescript') return result;
+    const valid = javascriptTextValidator();
+    if (valid && valid(result.code)) return result;
+  }
   return fail(result.backend, [...result.diagnostics, {
     file, code: 'UNBOUND_RUNTIME_EXPORT', severity: 'error',
     message: 'A local export has no runtime binding after type erasure', start: 0, end: 0,
@@ -790,6 +818,7 @@ function verifyRuntimeExports(result, file, addon, bytes) {
 }
 
 function hasModuleMarker(addon, code, bytes = Buffer.from(code)) {
+  if (bytes.length > 1048576) return require('./compiler-ts-lower.cjs').hasTopLevelModuleSyntax(code);
   return addon.moduleMarker(bytes, false) ||
     (code.includes('\u2002') && addon.moduleMarker(Buffer.from(code.replaceAll('\u2002', ' ')), false));
 }
@@ -850,17 +879,36 @@ function decoratedScript(code) {
 
 const tsRejectsInNodeStrip = /\\u003[0-9]|\\u\{0*3[0-9]\}|\?\.[^\n;]*#|\bfor\s*\(\s*let\s*[;=]|\bstatic(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*\bstatic\b|=(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/)*\bawait\b(?![ \t]*[\w$([{'"`!~+-])|@[A-Za-z_$][\w$]*(?:\([^)]*\))?(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/)*(?:\bthis\b|static\s*\{|\b(?:constructor|enum|function|interface|type|var|let|const|namespace|module|import)\b)|(?<!\bexport\s*)(?<!\)\s*)\{\s*(?:while|for|if|return|class|function|var|let|const|extends)\s*[,}]|\?\.(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/)*[A-Za-z_$][\w$]*\s*<[^<>()\n;]*>\s*\(|\bnew(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*import\b|\bimport(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*(?:\.(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)*source|type\s+(?:defer|source)|source)\b|<[^<>\n;]+>\s*\.[A-Za-z_$]|\btype[ \t]+(?:void|break|case|catch|class|const|continue|debugger|default|delete|do|else|enum|export|extends|false|finally|for|function|if|import|in|instanceof|new|null|return|super|switch|this|throw|true|try|typeof|var|while|with)[ \t]*=|<[^>]*\b(?:in\s+in|out\s+out)\b|\bexport\s+as\s+namespace\b|\bimplements\s*\{|\bdeclare[ \t]+module[ \t]*[\r\n]|\bdeclare[ \t]+(?:module|namespace)[ \t]+(?:break|case|catch|class|const|continue|debugger|default|delete|do|else|enum|export|extends|false|finally|for|function|if|import|in|instanceof|new|null|return|super|switch|this|throw|true|try|typeof|var|while|with)\b|\(\s*(?:<[^>]+>\s*)?[A-Za-z_$][\w$]*(?:\s+(?:as|satisfies)\b[^)]*)?\)\s*(?:&&|\|\||\?\?)?=(?![=>])/;
 
+let _lastCleanRejectSrc = null;
+
 function hasTsRejectsInNodeStrip(source) {
+  if (source === _lastCleanRejectSrc) return false;
   const noComments = (source.includes('/*') || source.includes('//'))
     ? source.replace(/("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n\u2028\u2029]*/g, (m, str) => str || ' ')
     : source;
   if (tsRejectsInNodeStrip.test(noComments) || require('./compiler-ts-lower.cjs').hasForBracketIn(noComments)) return true;
+  if (noComments !== source && tsRejectsInNodeStrip.test(source)) {
+    const tsLower = require('./compiler-ts-lower.cjs');
+    const toks = tsLower.tokenizeReadOnly(source);
+    if (toks) {
+      let rebuilt = '';
+      for (let i = 0; i < toks.length; i++) {
+        if (i > 0 && toks[i].start > toks[i - 1].end) {
+          rebuilt += source.slice(toks[i - 1].end, toks[i].start).includes('\n') ? '\n' : ' ';
+        }
+        rebuilt += toks[i].text;
+      }
+      if (tsRejectsInNodeStrip.test(rebuilt)) return true;
+    }
+    if (source.includes('@') && tsLower.eraseNonEsDecorators(source)?.changed) return true;
+  }
   if (/\([ \t]*await[ \t]*\)(?![ \t]*\{)/.test(noComments) && !/\bfunction\b/.test(noComments) && !/\basync[ \t]*\([ \t]*await[ \t]*\)[ \t]*(?::[^\n]*?)?=>/.test(noComments)) return true;
   // TypeScript rejects multiple `/// <amd-module` directives in one file.
   if (source.includes('<amd-module')) {
     const m = source.match(/\/\/\/[ \t\f\v]*<amd-module\b/gi);
     if (m && m.length > 1) return true;
   }
+  _lastCleanRejectSrc = source;
   return false;
 }
 
@@ -1010,7 +1058,8 @@ function hasNbspOutsideStrings(text) {
 }
 
 function patchStaticPrototypeMembers(source) {
-  if (!source.includes('static') || !source.includes('prototype')) return null;
+  if (!source.includes('static') || !source.includes('prototype') ||
+      !/\bstatic(?:\s|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n]*)+prototype\b/.test(source)) return null;
   const toks = require('./compiler-ts-lower.cjs').tokenize(source);
   if (!toks) return null;
   // Find `static prototype` strictly inside a `class ... { ... }` member position
@@ -1066,7 +1115,10 @@ function eraseModule(addon, source, file, format, parameterProperty) {
   if (result?.code == null) return null;
   if (result.code === work && hasEscapedKeyword(work, true)) return null;
   const emitted = Buffer.from(result.code);
-  if (hasModuleMarker(addon, result.code, emitted)) return verifyRuntimeExports(result, file, addon, emitted);
+  if (hasModuleMarker(addon, result.code, emitted)) {
+    const verified = verifyRuntimeExports(result, file, addon, emitted);
+    return emitted.length > 1048576 && verified.code === null ? null : verified;
+  }
   const isWorkModule = addon.moduleMarker(Buffer.from(work), true) ||
     require('./compiler-ts-lower.cjs').hasTopLevelModuleSyntax(work) ||
     /\bimport\s*\.\s*meta\b/.test(work);
@@ -1701,6 +1753,20 @@ function compile(input, options = {}) {
           if (named !== null) return named;
           const plainJs = validJavaScriptTsModule(mapper, source, typeof stable === 'string' ? stable : source.toString(), file, format, false, true);
           if (plainJs !== null) return plainJs;
+          // Projection source map for node-strip blank-in-place erased outputs (avoids falling back to TypeScript).
+          if (mapper.projectionMappings && (file.endsWith('.ts') || file.endsWith('.mts'))) {
+            const plain = compile(source, { ...options, sourceMap: false });
+            if (plain.backend === 'node-strip' && typeof plain.code === 'string' && plain.diagnostics.length === 0) {
+              const strictHead = '"use strict";\n';
+              const addedStrict = plain.code.startsWith(strictHead) && !source.subarray(0, strictHead.length).equals(Buffer.from(strictHead));
+              const bodyCode = addedStrict ? plain.code.slice(strictHead.length) : plain.code;
+              const mappings = mapper.projectionMappings(source, Buffer.from(bodyCode));
+              if (typeof mappings === 'string') {
+                const text = typeof stable === 'string' ? stable : source.toString();
+                return { ...plain, sourceMap: require('./compiler-maps.cjs').sourceMapObject(file, (addedStrict ? ';' : '') + mappings, text) };
+              }
+            }
+          }
         }
       }
     }
@@ -1960,9 +2026,10 @@ function compile(input, options = {}) {
             const noBom = text.charCodeAt(0) === 0xFEFF && !text.startsWith('\uFEFF#!') ? text.slice(1) : text;
             const hasTsDirectiveComment = noBom.includes('// @') || noBom.includes('//@');
             const extMod = directive || hasTsDirectiveComment || noBom.includes('declare module') || noBom.includes('declare global') || /\bexport[ \t]+(?:default|declare)\b/.test(noBom) || hasStaticPrototypeMember(noBom);
-            let result = (!triedOrigMod && extMod && !/[^\x00-\x7f]/.test(noBom) && /\b(?:import|export)\b/.test(noBom))
+            const skipPreStrip = format === 'preserve' && noBom.length > 4096 && /\b(?:const[ \t]+)?enum[ \t]+[A-Za-z_$][\w$]*[ \t]*\{/.test(noBom);
+            let result = (!skipPreStrip && !triedOrigMod && extMod && !/[^\x00-\x7f]/.test(noBom) && /\b(?:import|export)\b/.test(noBom))
               ? eraseModule(addon, noBom, file, format, property) : null;
-            if (!result && !triedOrigMod && !hasNbspOutsideStrings(noBom) && format === 'preserve') result = eraseScript(addon, noBom, Buffer.from(noBom), file, directive, true);
+            if (!skipPreStrip && !result && !triedOrigMod && !hasNbspOutsideStrings(noBom) && format === 'preserve') result = eraseScript(addon, noBom, Buffer.from(noBom), file, directive, true);
             if (result) return result;
             if (format === 'preserve' &&
                 !hasEscapedKeyword(noBom, false) && !hasNbspOutsideStrings(noBom) &&
@@ -2068,8 +2135,9 @@ function compile(input, options = {}) {
         // or `/// <reference lib="..." preserve="true" />` that are well-formed closed tags.
         if ((format === 'preserve' || !/\/\/\/[ \t\f\v]*<amd-module\b/i.test(text)) &&
             !/\/\/\/[ \t\f\v]*<reference\b(?![ \t]+(?:path|types|lib|no-default-lib)[ \t]*=(?:"[^"\r\n]*"|'[^'\r\n]*')(?:[ \t]+[a-z-]+[ \t]*=(?:"[^"\r\n]*"|'[^'\r\n]*'))*[ \t]*\/>)/.test(text)) {
-          let result = /\b(?:import|export)\b/.test(text) ? eraseModule(addon, text, file, format, false) : null;
-          if (!result && format === 'preserve') result = eraseScript(addon, text, textBuf, file, true, true);
+          const skipPreStrip2 = format === 'preserve' && text.length > 4096 && /\b(?:const[ \t]+)?enum[ \t]+[A-Za-z_$][\w$]*[ \t]*\{/.test(text);
+          let result = !skipPreStrip2 && /\b(?:import|export)\b/.test(text) ? eraseModule(addon, text, file, format, false) : null;
+          if (!skipPreStrip2 && !result && format === 'preserve') result = eraseScript(addon, text, textBuf, file, true, true);
           if (result) return result;
           if (format === 'preserve' && !hasEscapedKeyword(text, false) && /\b(?:namespace|module|enum|require|export|constructor)\b/.test(text)) {
             const tsLower = require('./compiler-ts-lower.cjs');

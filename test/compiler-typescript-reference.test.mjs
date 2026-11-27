@@ -3918,3 +3918,87 @@ test('F196 official spec suite push: AST-exact ceiling push (0 FP)', () => {
     assert.ok(r.diagnostics.length > 0, file);
   }
 });
+
+test('R62 performance fast-paths preserve soundness, cache isolation, and boundary checks', () => {
+  // 1. strip() cache isolates diagnostics array and diagnostic objects from caller mutation
+  const bad1 = compile('let x: = 1', { mode: 'strip', file: 'r62-strip-mut.ts' });
+  assert.equal(bad1.code, null);
+  assert.ok(bad1.diagnostics.length > 0);
+  bad1.diagnostics[0].message = 'mutated';
+  bad1.diagnostics.length = 0;
+  const bad2 = compile('let x: = 1', { mode: 'strip', file: 'r62-strip-mut.ts' });
+  assert.equal(bad2.code, null);
+  assert.ok(bad2.diagnostics.length > 0);
+  assert.notEqual(bad2.diagnostics[0].message, 'mutated');
+
+  const ok1 = compile('const x: number = 1;', { mode: 'strip', file: 'r62-strip-ok.ts' });
+  ok1.diagnostics.push({ code: 'FAKE' });
+  const ok2 = compile('const x: number = 1;', { mode: 'strip', file: 'r62-strip-ok.ts' });
+  assert.equal(ok2.diagnostics.length, 0);
+
+  // 2. tokenize() export returns fresh unshared tokens
+  const tsLower = createRequire(import.meta.url)('../src/compiler-ts-lower.cjs');
+  const t1 = tsLower.tokenize('const a = 1;');
+  t1[1].text = 'MUTATED';
+  t1.length = 0;
+  const t2 = tsLower.tokenize('const a = 1;');
+  assert.equal(t2[1].text, 'a');
+
+  // 3. >16KiB file with labeled invalid type alias or commented labeled type alias + enum
+  const bigLabeled = `/*${'x'.repeat(16700)}*/\nlabel: type T = ???;\nenum E { A }\n`;
+  const rBigLabeled = compile(bigLabeled, { file: 'r62-big-labeled.ts', target: 'esnext', module: 'preserve' });
+  assert.equal(rBigLabeled.code, null);
+  assert.ok(rBigLabeled.diagnostics.length > 0);
+  const bigLabeledComment = `/*${'x'.repeat(16700)}*/\nlabel: /*c*/type T = number;\nconst y = 1;\nenum E { A }\n`;
+  const rBigLabeledComment = compile(bigLabeledComment, { file: 'r62-big-labeled-c.ts', target: 'esnext', module: 'preserve' });
+  assert.ok(typeof rBigLabeledComment.code === 'string');
+  assert.equal(rBigLabeledComment.diagnostics.length, 0);
+  new Function(rBigLabeledComment.code);
+
+  // 4. >1MiB file: unbound local export never emits unbound `export {q}`, while bound local export,
+  // re-export, and JSX preserve local export succeed
+  const bigUnbound = `/*${'x'.repeat(1048576)}*/\nexport declare const q: number;\nexport {q};\n`;
+  const rBigUnbound = compile(bigUnbound, { file: 'r62-big-unbound.ts', target: 'esnext', module: 'preserve' });
+  assert.ok(rBigUnbound.code === null || !rBigUnbound.code.includes('export {q}'));
+  const bigBound = `/*${'x'.repeat(1048576)}*/\nconst q: number = 1;\nexport {q};\n`;
+  const rBigBound = compile(bigBound, { file: 'r62-big-bound.ts', target: 'esnext', module: 'preserve' });
+  assert.ok(typeof rBigBound.code === 'string');
+  assert.equal(rBigBound.diagnostics.length, 0);
+  const bigReexport = `/*${'x'.repeat(1048576)}*/\nexport {q} from "./m";\nexport {};\n`;
+  const rBigReexport = compile(bigReexport, { file: 'r62-big-reexport.ts', target: 'esnext', module: 'preserve' });
+  assert.ok(typeof rBigReexport.code === 'string');
+  assert.equal(rBigReexport.diagnostics.length, 0);
+  const bigJsxPreserve = `/*${'x'.repeat(1048576)}*/\nconst x = <div/>;\nexport {x};\n`;
+  const rBigJsx = compile(bigJsxPreserve, { file: 'r62-big-jsx.tsx', target: 'esnext', module: 'preserve', jsx: 'preserve' });
+  assert.ok(typeof rBigJsx.code === 'string');
+  assert.equal(rBigJsx.diagnostics.length, 0);
+
+  // 5. Regex containing `//` or quotes/backticks before `@dec` or invalid `type class`
+  for (const decRegex of [
+    'const r = /[//]/; @dec function f() {}\n',
+    'const r = /["]/; @dec function f() { return ""; }\n',
+    'const r = /[`]/; @dec function f() { return ``; }\n',
+  ]) {
+    for (const sourceMap of [false, true]) {
+      const r = compile(decRegex, { file: 'r62-dec-regex.ts', target: 'esnext', module: 'preserve', sourceMap });
+      assert.ok(typeof r.code === 'string');
+      assert.ok(!r.code.includes('@dec'), `sourceMap=${sourceMap} ${decRegex}`);
+      new Function(r.code);
+    }
+  }
+  const badRegexType = 'const r = /[//]/; type class = string;\n';
+  for (const sourceMap of [false, true]) {
+    const r = compile(badRegexType, { file: 'r62-bad-regex-type.ts', target: 'esnext', module: 'preserve', sourceMap });
+    assert.equal(r.code, null, `sourceMap=${sourceMap}`);
+    assert.ok(r.diagnostics.length > 0, `sourceMap=${sourceMap}`);
+  }
+
+  // 6. Regex containing `)` inside constructor parameter list must not skip lowerParameterProperties
+  const ppRegex = 'class C { constructor(x = /[)]/, public y: number = 1) {} }\n';
+  const ppRes = tsLower.lowerParameterProperties(ppRegex);
+  assert.equal(ppRes.changed, true);
+
+  // 7. hasTopLevelModuleSyntax must not misclassify internal import aliases
+  assert.equal(tsLower.hasTopLevelModuleSyntax('import type Q = X.Y;\n'), false);
+  assert.equal(tsLower.hasTopLevelModuleSyntax('import Q /*c*/ = X.Y;\n'), false);
+});
