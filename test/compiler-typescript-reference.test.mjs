@@ -3843,8 +3843,16 @@ test('F193 official spec suite push: TS compiler 99.19%, TS conformance 99.19%, 
     ['r60-variance-binary-in.ts', 'class C { in a; }\nconst k = { a: 1 }; const z = "a"\nin k;\nglobalThis.result = z;\n', true],
     ['r60-ns-ternary-new-newline.ts', 'namespace N { export var x = Object; globalThis.result = typeof (true ? new\n x : 0); }\n', 'object'],
     ['r60-ns-empty-export-uninst.ts', 'namespace N { export {}; }\nglobalThis.result = typeof N;\n', 'undefined'],
+    ['r60-ns-nonempty-export-inst.ts', 'namespace N { export { x }; }\nglobalThis.result = typeof N;\n', 'object'],
+    ['r60-ns-export-import-req-inst.ts', 'namespace N { export import x = require("a"); }\nglobalThis.result = typeof N;\n', 'object'],
     ['r60-ns-import-only-uninst.ts', 'namespace N { import { x } from "a"; }\nglobalThis.result = typeof N;\n', 'undefined'],
+    ['r60-ns-import-side-effect.ts', 'namespace N { import "a"; export const v = 1; }\nglobalThis.result = N.v;\n', 1],
+    ['r60-ns-import-from-ident.ts', 'namespace N { import from from "a"; export const v = 2; }\nglobalThis.result = N.v;\n', 2],
     ['r60-ns-export-import-req-ref.ts', 'namespace N { export import x = require("a"); export const y = x; }\nglobalThis.result = N.y;\n', undefined],
+    ['r60-ns-export-import-dollar.ts', 'namespace N { export import $x = require("a"); export const y = $x; }\nglobalThis.result = N.y;\n', undefined],
+    ['r60-ns-export-import-spread.ts', 'namespace N { export import x = require("a"); export const y = [...(x || [])].length; }\nglobalThis.result = N.y;\n', 0],
+    ['r60-variance-class-field-in.ts', 'const k = { a: 1 }; class C { in a; x = "a"\nin k; } globalThis.result = new C().x;\n', true],
+    ['r60-variance-obj-class-key-in.ts', 'type T<out in A> = A; const obj = { class: 1 }; function f(k) { return "a"\nin k; } globalThis.result = f({ a: 1 });\n', true],
   ]) {
     const r = sameAsTypeScript(source, file);
     assert.equal(runGlobal(r.code), expectedResult, file);
@@ -3855,7 +3863,12 @@ test('F193 official spec suite push: TS compiler 99.19%, TS conformance 99.19%, 
   for (const [file, source] of [
     ['r60-ns-bad-export-list.ts', 'namespace N { export { x as }; }\n'],
     ['r60-ns-bad-import-list.ts', 'namespace N { import { x as } from "a"; }\n'],
+    ['r60-ns-export-missing-semi.ts', 'namespace N { export {} globalThis.result++; }\n'],
+    ['r60-jsdoc-fn-ret-missing-semi.ts', 'let x: function(number): string globalThis.result++;\n'],
     ['r60-jsdoc-bad-ternary-q.ts', 'let z: ? = 2; const a = true ? 1 : ?;\n'],
+    ['r60-jsdoc-bare-q-semi.ts', 'let z: ?;\n'],
+    ['r60-jsdoc-prop-bare-q.ts', 'class C { x?: ?; }\n'],
+    ['r60-jsdoc-ternary-prefix-q.ts', 'function f(x?: ?) {} const a = false ? 1 : ?foo;\n'],
   ]) {
     const r = compile(source, { file, target: 'esnext', module: 'preserve' });
     assert.equal(r.code, null, file);

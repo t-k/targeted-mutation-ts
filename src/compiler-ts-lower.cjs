@@ -1265,10 +1265,29 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
         const loweredInner = lowerNamespaceBody(bodySrc, innerParam);
         if (loweredInner === null) return null;
         if (loweredInner !== bodySrc && isTypeOnlyNamespaceBody(loweredInner)) {
-          const blank = isLabeled ? ';' : src.slice(t.start, toks[closeIdx].end).replace(/[^\r\n]/g, ' ');
-          edits.push({ start: t.start, end: toks[closeIdx].end, text: blank });
-          i = closeIdx;
-          continue;
+          // Only erase as uninstantiated if the original body did NOT contain an instantiating
+          // non-empty `export { x }` or `export import x = require(...)` statement.
+          const origToks = tokenize(bodySrc, isJsx);
+          let origInstantiates = false;
+          if (origToks) {
+            let d = 0;
+            for (let oi = 0; oi < origToks.length; oi++) {
+              if (origToks[oi].text === '{') { d++; continue; }
+              if (origToks[oi].text === '}') { if (d > 0) d--; continue; }
+              if (d !== 0) continue;
+              if (origToks[oi].type === 'id' && origToks[oi].text === 'export') {
+                const n1 = origToks[oi + 1];
+                if (n1?.text === 'import') { origInstantiates = true; break; }
+                if (n1?.text === '{' && origToks[oi + 2]?.text !== '}') { origInstantiates = true; break; }
+              }
+            }
+          }
+          if (!origInstantiates) {
+            const blank = isLabeled ? ';' : src.slice(t.start, toks[closeIdx].end).replace(/[^\r\n]/g, ' ');
+            edits.push({ start: t.start, end: toks[closeIdx].end, text: blank });
+            i = closeIdx;
+            continue;
+          }
         }
 
         // Wrap from innermost to outermost
@@ -1304,7 +1323,11 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
           const cb = findMatchingBrace(toks, idx);
           if (cb > idx && toks[cb + 1]?.text !== 'from') {
             let endIdx = cb;
-            if (toks[endIdx + 1]?.text === ';') endIdx++;
+            const hasSemi = toks[endIdx + 1]?.text === ';';
+            if (hasSemi) endIdx++;
+            else if (toks[endIdx + 1] && toks[endIdx + 1].text !== '}' && !hasNewlineBetween(src, toks[endIdx].end, toks[endIdx + 1].start)) {
+              return null;
+            }
             const stmt = src.slice(t.start, toks[endIdx].end);
             try { stripTypeScriptTypes(stmt); } catch { return null; }
             edits.push({ start: t.start, end: toks[endIdx].end, text: stmt.replace(/[^\r\n]/g, ' '), isVarDecl: true });
@@ -1579,15 +1602,20 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
           continue;
         }
         // `export import x = require("...");` inside an internal namespace/module is erased by TypeScript
-        // (bail if `x` is referenced later in the namespace so TS rewrites it to `${parentNs}.x`)
+        // (bail if `x` is referenced anywhere else in the namespace so TS rewrites it to `${parentNs}.x`)
         if (kw.text === 'import' && toks[idx + 1]?.type === 'id' &&
             toks[idx + 2]?.text === '=' && toks[idx + 3]?.text === 'require' && toks[idx + 4]?.text === '(' &&
             toks[idx + 5]?.type === 'str' && toks[idx + 6]?.text === ')') {
           const aliasName = toks[idx + 1].text;
+          if (aliasName.includes('\\u')) return null;
           let endIdx = idx + 6;
           if (toks[endIdx + 1]?.text === ';') endIdx++;
-          const rest = src.slice(0, t.start) + src.slice(toks[endIdx].end);
-          if (new RegExp(`(?<![\\w$.])${aliasName}(?![\\w$])`).test(rest)) return null;
+          for (let ri = 0; ri < toks.length; ri++) {
+            if (ri >= i && ri <= endIdx) continue;
+            const rt = toks[ri];
+            if (rt.type !== 'id') continue;
+            if (rt.text.includes('\\u') || (rt.text === aliasName && toks[ri - 1]?.text !== '.')) return null;
+          }
           edits.push({ start: t.start, end: toks[endIdx].end, text: src.slice(t.start, toks[endIdx].end).replace(/[^\r\n]/g, ' '), isVarDecl: true });
           i = endIdx;
           continue;
@@ -1641,7 +1669,7 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
           continue;
         }
       }
-      // Inside an internal namespace/module, `import x = require("...");` and static `import ... from "...";` are erased by TypeScript
+      // Inside an internal namespace/module, `import x = require("...");` and static `import ... from "...";` / `import "...";` are erased by TypeScript
       if (parentNs && !isExport && toks[idx].text === 'import') {
         const afterImp = toks[idx + 1];
         if (!afterImp || afterImp.text === '(' || afterImp.text === '.') continue;
@@ -1654,9 +1682,24 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
           i = endIdx;
           continue;
         }
-        // Static `import * as X from "...";` / `import X from "...";` / `import { ... } from "...";`
-        if (afterImp.text === '*' || afterImp.text === '{' || afterImp.type === 'id') {
-          let k = idx + 1, dBr = 0;
+        // `import a = X.Y;` is handled right below
+        if (afterImp.type === 'id' && toks[idx + 2]?.text === '=') {
+          // fall through to import-equals lowering below
+        } else if (afterImp.type === 'str') {
+          // Side-effect `import "a";` inside a namespace
+          let endIdx = idx + 1;
+          if (toks[endIdx + 1]?.text === ';') endIdx++;
+          else if (toks[endIdx + 1] && toks[endIdx + 1].text !== '}' && !hasNewlineBetween(src, toks[endIdx].end, toks[endIdx + 1].start)) {
+            return null;
+          }
+          const stmt = src.slice(t.start, toks[endIdx].end);
+          try { stripTypeScriptTypes(stmt); } catch { return null; }
+          edits.push({ start: t.start, end: toks[endIdx].end, text: stmt.replace(/[^\r\n]/g, ' '), isVarDecl: true });
+          i = endIdx;
+          continue;
+        } else if (afterImp.text === '*' || afterImp.text === '{' || afterImp.type === 'id') {
+          // Static `import * as X from "...";` / `import X from "...";` / `import { ... } from "...";` (start at idx+2 so `import from from "a"` works)
+          let k = idx + 2, dBr = afterImp.text === '{' ? 1 : 0;
           while (k < toks.length) {
             const tk = toks[k];
             if (tk.text === '{') { dBr++; k++; continue; }
@@ -1668,12 +1711,18 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
           if (toks[k]?.text === 'from' && toks[k - 1]?.text !== '.' && toks[k + 1]?.type === 'str') {
             let endIdx = k + 1;
             if (toks[endIdx + 1]?.text === ';') endIdx++;
+            else if (toks[endIdx + 1] && toks[endIdx + 1].text !== '}' && !hasNewlineBetween(src, toks[endIdx].end, toks[endIdx + 1].start)) {
+              return null;
+            }
             const stmt = src.slice(t.start, toks[endIdx].end);
             try { stripTypeScriptTypes(stmt); } catch { return null; }
             edits.push({ start: t.start, end: toks[endIdx].end, text: stmt.replace(/[^\r\n]/g, ' '), isVarDecl: true });
             i = endIdx;
             continue;
           }
+          return null;
+        } else {
+          return null;
         }
       }
       // Non-exported `import a = X.Y;` (top-level or inside a namespace) -> `var a = X.Y;`
@@ -6491,7 +6540,7 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
       const classBodyDepths = new Set();
       let braceDepth = 0, pendingClassBrace = false;
       for (let i = 0; i < toks.length - 1; i++) {
-        if (toks[i].type === 'id' && toks[i].text === 'class' && toks[i - 1]?.text !== '.') {
+        if (toks[i].type === 'id' && toks[i].text === 'class' && toks[i - 1]?.text !== '.' && toks[i + 1]?.text !== ':') {
           pendingClassBrace = true;
           continue;
         }
@@ -6516,7 +6565,7 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
             i = k;
           }
         } else if (classBodyDepths.has(braceDepth) && toks[i].type === 'id' && (toks[i].text === 'in' || toks[i].text === 'out') &&
-            (toks[i - 1].text === '{' || toks[i - 1].text === ';' || hasNewlineBetween(source, toks[i - 1].end, toks[i].start)) &&
+            (toks[i - 1].text === '{' || toks[i - 1].text === ';') &&
             toks[i + 1]?.type === 'id' && !hasNewlineBetween(source, toks[i].end, toks[i + 1].start) &&
             (toks[i + 2]?.text === '=' || toks[i + 2]?.text === ':' || toks[i + 2]?.text === ';' || toks[i + 2]?.text === '?' || toks[i + 2]?.text === '!')) {
           edits.push({ start: toks[i].start, end: toks[i].end, text: ' '.repeat(toks[i].end - toks[i].start) });
@@ -6662,7 +6711,15 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
                 else if (dP === 0 && dB === 0 && dBr === 0 && dA === 0 && (rt === ',' || rt === ';' || rt === '=')) break;
                 r++;
               }
-              if (r > cp + 2) endIdx = r - 1;
+              if (r > cp + 2) {
+                const retSrc = source.slice(toks[cp + 2].start, toks[r - 1].end);
+                try {
+                  stripTypeScriptTypes(`type __tmt_ret__ = ${retSrc};`);
+                  endIdx = r - 1;
+                } catch {
+                  continue;
+                }
+              }
             }
             edits.push({ start: cur.start, end: toks[endIdx].end, text: 'any' + ' '.repeat(Math.max(0, toks[endIdx].end - cur.start - 3)) });
             i = endIdx;
@@ -6672,7 +6729,7 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
         if ((cur.text === '!' || cur.text === '?') &&
             (prev.text === ':' || prev.text === 'is' || prev.text === 'as' || prev.text === '<' || (cur.text === '?' && prev.text === '|')) &&
             next.type === 'id') {
-          if (cur.text === '!' && prev.text === ':') {
+          if (prev.text === ':') {
             const p2 = toks[i - 2], p3 = toks[i - 3];
             let isRetType = false;
             if (p2?.text === ')' && (toks[i + 2]?.text === '{' || toks[i + 2]?.text === '=>' || toks[i + 2]?.text === ';')) {
@@ -6683,8 +6740,8 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
               }
               if (op >= 0 && toks[op - 1]?.text !== '?') isRetType = true;
             }
-            const isTypePos = isRetType || p2?.text === '?' ||
-              (p3?.type === 'id' && DECL_MOD.has(p3.text));
+            const isParamOrDecl = p2?.type === 'id' && p3 && (DECL_MOD.has(p3.text) || (cur.text === '?' && (p3.text === '(' || p3.text === ',')));
+            const isTypePos = isRetType || p2?.text === '?' || isParamOrDecl;
             if (!isTypePos) continue;
           }
           edits.push({ start: cur.start, end: cur.end, text: ' ' });
@@ -6698,10 +6755,9 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
         } else if (cur.text === '*' && prev.text === ':' &&
             (next.text === ';' || next.text === ',' || next.text === ')' || next.text === '}' || next.text === '|' || next.text === '=')) {
           edits.push({ start: cur.start, end: cur.end, text: 'any' });
-        } else if (cur.text === '?' && prev.text === ':' &&
-            (next.text === ';' || next.text === ',' || next.text === ')' || next.text === '}' || next.text === '=')) {
+        } else if (cur.text === '?' && prev.text === ':' && next.text === '=') {
           const p2 = toks[i - 2], p3 = toks[i - 3];
-          if (p2?.text === '?' || (p3?.type === 'id' && DECL_MOD.has(p3.text))) {
+          if (p2?.type === 'id' && p3?.type === 'id' && DECL_MOD.has(p3.text)) {
             edits.push({ start: cur.start, end: cur.end, text: 'any' });
           }
         } else if (cur.text === '*' && prev.text === '<' && (next.text === '>' || next.text === ',')) {
