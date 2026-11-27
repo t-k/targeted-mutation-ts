@@ -847,7 +847,16 @@ static napi_value emit_typescript(napi_env env, napi_callback_info info) {
         bool fs_edited = false;
         size_t fs_len = 0;
         char *fs_out = tmt_fast_strip_module(source, width, known_first, esm, fs_buf, &fs_len, &fs_edited);
-        if (fs_out && (!(flags & emit_mapped) || fs_len >= size) && tmt_valid_module_source_latin1(fs_out, fs_len)) {
+        if (fs_out && tmt_valid_module_source_latin1(fs_out, fs_len)) {
+          if ((flags & emit_mapped) && fs_len < size) {
+            napi_value text_val, map_val;
+            NAPI(napi_create_string_latin1(env, fs_out, fs_len, &text_val));
+            NAPI(napi_create_string_latin1(env, "", 0, &map_val));
+            NAPI(napi_create_array_with_length(env, 2, &result));
+            NAPI(napi_set_element(env, result, 0, text_val));
+            NAPI(napi_set_element(env, result, 1, map_val));
+            return result;
+          }
           output = fs_out;
           length = fs_len;
           output_owned = false;
@@ -909,7 +918,7 @@ static napi_value emit_typescript(napi_env env, napi_callback_info info) {
   }
   if (runtime && !spells_helper_letter(source, size)) {
     output_owned = true;
-    output = tmt_lower_runtime(source, width, true, true, classic, true, &length, &complete, flags & emit_mapped ? &runs : NULL);
+    output = tmt_lower_runtime_ws(state ? state->workspace : NULL, source, width, true, true, classic, true, &length, &complete, flags & emit_mapped ? &runs : NULL);
     if (output && complete) goto publish;
   }
 decline:

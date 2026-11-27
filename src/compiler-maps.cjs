@@ -1,5 +1,8 @@
 'use strict';
 
+let fastMapped;
+let fastMappedLoaded = false;
+
 // A type-erased output keeps every byte position, so its map comes from one native scan.
 // Lowered output, a byte order mark and unusual names take the router, which asks TypeScript.
 function mappedTypeScript(input, file, flags, addon) {
@@ -9,6 +12,24 @@ function mappedTypeScript(input, file, flags, addon) {
   const text = typeof input === 'string' ? input : Buffer.isBuffer(input) ? undefined : null;
   if (text === null || text !== undefined && (!text.isWellFormed() || text.charCodeAt(0) === 0xFEFF)) return undefined;
   if (text === undefined && input[0] === 0xEF) return undefined;
+  if (flags === esm) {
+    if (!fastMappedLoaded) {
+      try {
+        const js = { exports: {} };
+        process.dlopen(js, __dirname + '/../build/compiler-js.node');
+        fastMapped = js.exports.emitFastModuleMapped;
+      } catch {
+        fastMapped = undefined;
+      }
+      fastMappedLoaded = true;
+    }
+    if (fastMapped !== undefined) {
+      const fastRes = fastMapped(text ?? input);
+      if (fastRes !== undefined) {
+        return { backend: 'pulse', code: fastRes[0], sourceMap: sourceMapObject(file, fastRes[1], text ?? input.toString()), diagnostics: [] };
+      }
+    }
+  }
   const emit = addon.emitTypeScript;
   const result = emit === undefined ? undefined : emit(text ?? input, flags | 16);
   if (result === null) return null;
@@ -18,11 +39,21 @@ function mappedTypeScript(input, file, flags, addon) {
 
 // The fields other than the mappings follow the map TypeScript writes for the same name.
 function sourceMapObject(file, mappings, text, preserveJsx = false, format = 'preserve') {
-  const name = file.slice(file.lastIndexOf('/') + 1);
-  const outExt = preserveJsx && /x$/i.test(name) ? '.jsx' :
-    format === 'cjs' && /\.c[jt]s$/i.test(name) ? '.cjs' :
-      /\.m[jt]s$/i.test(name) && format !== 'cjs' ? '.mjs' : '.js';
-  return { version: 3, file: name.replace(/\.(?:[cm]?[jt]s|[jt]sx)$/i, outExt), sourceRoot: '', sources: [name], names: [],
+  const slash = file.lastIndexOf('/');
+  const name = slash < 0 ? file : file.slice(slash + 1);
+  let outFile;
+  if (!preserveJsx && format !== 'cjs') {
+    if (name.endsWith('.mts')) outFile = name.slice(0, -4) + '.mjs';
+    else if (name.endsWith('.ts')) outFile = name.slice(0, -3) + '.js';
+    else if (name.endsWith('.tsx')) outFile = name.slice(0, -4) + '.js';
+  }
+  if (outFile === undefined) {
+    const outExt = preserveJsx && /x$/i.test(name) ? '.jsx' :
+      format === 'cjs' && /\.c[jt]s$/i.test(name) ? '.cjs' :
+        /\.m[jt]s$/i.test(name) && format !== 'cjs' ? '.mjs' : '.js';
+    outFile = name.replace(/\.(?:[cm]?[jt]s|[jt]sx)$/i, outExt);
+  }
+  return { version: 3, file: outFile, sourceRoot: '', sources: [name], names: [],
     mappings, sourcesContent: [text] };
 }
 

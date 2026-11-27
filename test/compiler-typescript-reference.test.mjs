@@ -4321,3 +4321,104 @@ test('R66 fast-strip.c / emitFastModule soundness and edge-case regression cover
   assert.ok(typeof rDeep.code === 'string');
   assert.ok(performance.now() - t0 < 100, 'deeply nested parens must remain linear');
 });
+
+test('R67/R68 fast-strip enum/namespace lowering, .ts routing, MAP runs, and soundness guards', () => {
+  // 1. Enum & const enum lowering (auto-increment, bitshift, bitwise OR, negative, string)
+  const enumSrc = [
+    'export enum MoveType { ENTER, LEAVE, REORDER }',
+    'const enum Flags { None = 0, A = 1 << 0, B = 1 << 1, AB = A | B, Neg = -1 }',
+    'export enum Kind { S = "str" }',
+    'export const out = [MoveType.REORDER, Flags.AB, Flags.Neg, Kind.S];',
+  ].join('\n') + '\n';
+  for (const sourceMap of [false, true]) {
+    const r = compile(enumSrc, { file: 'r68-enum.mts', sourceMap });
+    assert.equal(r.backend, 'pulse');
+    assert.ok(r.code.includes('MoveType[MoveType["REORDER"]=2]="REORDER"'));
+    assert.ok(r.code.includes('Flags[Flags["AB"]=3]="AB"'));
+    assert.ok(r.code.includes('Flags[Flags["Neg"]=-1]="Neg"'));
+    assert.ok(r.code.includes('Kind["S"]="str"'));
+    if (sourceMap) assert.ok(typeof r.sourceMap?.mappings === 'string' && r.sourceMap.mappings.length > 0);
+  }
+
+  // 2. Namespace lowering (nested export namespace, export function/class/const, contextual `namespace = "svg"`)
+  const nsSrc = [
+    'export namespace Outer {',
+    '  export namespace Inner {',
+    '    export function add(a: number, b: number): number { return a + b; }',
+    '  }',
+    '  export class Box<T> { value: T; constructor(v: T) { this.value = v; } }',
+    '  export const TAG = "ok" as string;',
+    '}',
+    'export function ctx(namespace: string): string { if (true) { namespace = "svg"; } return namespace; }',
+  ].join('\n') + '\n';
+  const rNs = compile(nsSrc, { file: 'r68-ns.mts' });
+  assert.equal(rNs.backend, 'pulse');
+  assert.match(rNs.code, /Inner\.add\s*=\s*add;/);
+  assert.match(rNs.code, /Outer\.Box\s*=\s*Box;/);
+  assert.match(rNs.code, /Outer\.TAG\s*=/);
+  assert.ok(rNs.code.includes('namespace = "svg"'));
+
+  // 3. Object literal typed methods, switch case typed decls, callback typed locals, generic default params
+  const miscSrc = [
+    'export const obj = { get val(): number { return 1; }, fmt<T>(x: T): T { return x; } };',
+    'export function sw(k: number, m = new Map<string, number[]>()) {',
+    '  switch (k) {',
+    '    case 1: const a: number = 1; return [a, m];',
+    '    default: let b: string = "d"; return [b, m];',
+    '  }',
+    '}',
+    'export const cb = [1].map(x => { let y: number = (x as number || 0); return y; });',
+  ].join('\n') + '\n';
+  const rMisc = compile(miscSrc, { file: 'r68-misc.mts' });
+  assert.equal(rMisc.backend, 'pulse');
+  assert.ok(!rMisc.code.includes(': number'));
+  assert.ok(!rMisc.code.includes('<string, number[]>'));
+
+  // 4. Soundness guards: unbraced `if (true) type T = string;`, `constructor(this: Foo)`, `as` regrouping `*`
+  const rIfType = compile('if (true) type T = string;\nexport const x = 1;\n', { file: 'r68-if-type.mts' });
+  assert.ok(rIfType.code !== null && rIfType.code.includes('if (true)') && rIfType.code.includes(';'));
+  assert.ok(!rIfType.code.includes('type T'));
+  const rBadCtor = compile('export class C { constructor(this: C) {} }\n', { file: 'r68-bad.mts' });
+  assert.notEqual(rBadCtor.backend, 'pulse', 'fast-strip must decline constructor this parameter');
+  const rBadSyntax = compile('export const x: = 1;\n', { file: 'r68-syntax.mts' });
+  assert.equal(rBadSyntax.code, null, 'must reject invalid TS syntax');
+  assert.ok(rBadSyntax.diagnostics.length > 0);
+  const regroup = compile('export const x = a + b as number * c;\n', { file: 'r68-regroup.mts' });
+  assert.ok(regroup.code === null || regroup.code.includes('(a + b) * c'));
+
+  // 5. Codex R68 review regressions: enum precedence/overflow/separators, namespace multi-declarator & repeated calls, trailing MAP boundary
+  const rEnumPrec = compile('export enum E { A = 2 + 3 * 4, B = 9007199254740991 + 2 }\n', { file: 'r68-prec.mts' });
+  assert.ok(rEnumPrec.code !== null && rEnumPrec.code.includes('14') && !rEnumPrec.code.includes('20'));
+  for (const badNum of [
+    'export enum E { A = 1__2 }\n',
+    'export enum E { A = 0x_FF }\n',
+    'export enum E { A = 3_ }\n',
+  ]) {
+    const rBadNum = compile(badNum, { file: 'r68-badnum.mts' });
+    assert.equal(rBadNum.code, null, `must reject invalid numeric separator: ${badNum}`);
+  }
+  const nsMultiSrc = 'export namespace N { export const x = 1, y = 2; }\n';
+  for (let i = 0; i < 3; i++) {
+    const rNsMulti = compile(nsMultiSrc, { file: 'r68-ns-multi.mts' });
+    assert.ok(rNsMulti.code !== null && rNsMulti.code.includes('N.x') && rNsMulti.code.includes('N.y'));
+  }
+  const rNsCont = compile('export namespace N { export const x = 1\n+ 2, y = 3; }\n', { file: 'r68-ns-cont.mts' });
+  assert.ok(rNsCont.code !== null && rNsCont.code.includes('N.x') && rNsCont.code.includes('N.y'));
+  const rNsOuter = compile('export namespace N { export const x = 1; export namespace I { export const y = x; } }\n', { file: 'r68-ns-outer.mts' });
+  assert.ok(rNsOuter.code !== null && rNsOuter.code.includes('N.x') && rNsOuter.code.includes('I.y'));
+  const rTailMap = compile('export const x = 1; export enum E { A }\n', { file: 'r68-tailmap.mts', sourceMap: true });
+  assert.ok(rTailMap.code !== null && rTailMap.sourceMap && typeof rTailMap.sourceMap.mappings === 'string');
+  // Decode VLQ fields on line 0: the trailing generated enum must emit a 1-field unmapped boundary segment
+  const vlqChars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  const decodeSegFields = (seg) => {
+    let fields = 0, i = 0;
+    while (i < seg.length) {
+      let cont = true;
+      while (cont && i < seg.length) { cont = (vlqChars.indexOf(seg[i++]) & 32) !== 0; }
+      fields++;
+    }
+    return fields;
+  };
+  const firstLineFieldCounts = rTailMap.sourceMap.mappings.split(';')[0].split(',').filter(Boolean).map(decodeSegFields);
+  assert.equal(firstLineFieldCounts[firstLineFieldCounts.length - 1], 1, 'trailing generated enum must end line 0 with a 1-field unmapped segment');
+});

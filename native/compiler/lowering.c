@@ -1625,6 +1625,8 @@ typedef struct {
   TmtGrammar_candidate *records;
   uint8_t *marks;
   uint32_t capacity;
+  TmtGrammar_span *jsx_spans;
+  uint32_t jsx_spans_cap;
   char *out_buf;
   size_t out_cap;
 } reusable_workspace;
@@ -1638,6 +1640,7 @@ void tmt_workspace_free(void *ws) {
   if (!r) return;
   free(r->records);
   free(r->marks);
+  free(r->jsx_spans);
   free(r->out_buf);
   free(r);
 }
@@ -4064,6 +4067,14 @@ static char *render_jsx_spans(TmtPulseMemory_tape input, const TmtGrammar_span *
     .jsx_spans = tags, .jsx_count = tag_count,
     .expressions = expressions, .expression_count = expression_count,
     .output.limit = (size_t)input.size * 32 + 1024, .output.runs = runs };
+  {
+    const size_t init_cap = (size_t)input.size + (size_t)(input.size >> 2) + 1024;
+    char *pre = malloc(init_cap);
+    if (pre) {
+      lower.output.code = pre;
+      lower.output.capacity = init_cap;
+    }
+  }
   uint32_t enum_index = 0;
   if (source_jsx_with_enums(&lower, 0, insertion, enum_records, &enum_index)) {
     const size_t runtime_at = lower.output.length;
@@ -4239,12 +4250,15 @@ static char *render_jsx_module(TmtPulseMemory_tape input, TmtGrammar_span *spans
   return render_jsx_spans(input, spans, elements, expressions, expression_count, insertion, classic, length, 0, runs);
 }
 
-static char *lower_jsx_module(uint8_t *source, uint32_t size, bool typescript, unsigned classic, size_t *length, bool *complete,
+static char *lower_jsx_module(void *ws, uint8_t *source, uint32_t size, bool typescript, unsigned classic, size_t *length, bool *complete,
   tmt_run_log *runs)
 {
-  module_workspace memory;
-  fresh_workspace(&memory);
-  TmtPulseMemory_tape input = with_workspace(source, size, &memory);
+  reusable_workspace *rws = ws;
+  module_workspace stack_memory;
+  module_workspace *memory = rws ? &rws->memory : &stack_memory;
+  if (!rws) fresh_workspace(memory);
+  else memset(memory->marks, 0, sizeof(memory->marks));
+  TmtPulseMemory_tape input = with_workspace(source, size, memory);
   const TmtPulseParser_cursor first = TmtPulseCompiler_runtime_source_start(input);
   if (!first.ok) return NULL;
   const uint32_t marker = find_marker(input, first.at, true);
@@ -4273,17 +4287,46 @@ static char *lower_jsx_module(uint8_t *source, uint32_t size, bool typescript, u
       small = capture_jsx(input, module);
     }
     if (small.status == 0 && small.count <= input.capacity) {
-      TmtGrammar_span spans[sizeof(memory.marks)];
+      TmtGrammar_span spans[sizeof(memory->marks)];
       return render_jsx_module(input, spans, small.count, insertion, typescript, classic, length, complete, runs);
     }
     if (small.status != 4) return NULL;
   }
   uint32_t capacity = size / 3 + 1;
   if (capacity > 16384) capacity = 16384;
-  input.output = malloc(capacity * sizeof(*input.output));
-  input.marks = malloc(capacity);
-  input.capacity = capacity;
-  TmtGrammar_span *spans = malloc(capacity * sizeof(*spans));
+  bool owned_bufs = false;
+  TmtGrammar_span *spans = NULL;
+  if (rws) {
+    if (rws->capacity < capacity) {
+      const uint32_t next_cap = capacity < 16384 ? 16384 : capacity;
+      TmtGrammar_candidate *nr = realloc(rws->records, next_cap * sizeof(*nr));
+      uint8_t *nm = nr ? realloc(rws->marks, next_cap) : NULL;
+      if (nr) rws->records = nr;
+      if (nm) rws->marks = nm;
+      if (nr && nm) rws->capacity = next_cap;
+    }
+    if (rws->jsx_spans_cap < capacity) {
+      const uint32_t next_cap = capacity < 16384 ? 16384 : capacity;
+      TmtGrammar_span *ns = realloc(rws->jsx_spans, next_cap * sizeof(*ns));
+      if (ns) {
+        rws->jsx_spans = ns;
+        rws->jsx_spans_cap = next_cap;
+      }
+    }
+    if (rws->capacity >= capacity && rws->jsx_spans_cap >= capacity) {
+      input.output = rws->records;
+      input.marks = rws->marks;
+      input.capacity = capacity;
+      spans = rws->jsx_spans;
+    }
+  }
+  if (!spans) {
+    owned_bufs = true;
+    input.output = malloc(capacity * sizeof(*input.output));
+    input.marks = malloc(capacity);
+    input.capacity = capacity;
+    spans = malloc(capacity * sizeof(*spans));
+  }
   char *result = NULL;
   if (input.output && input.marks && spans) {
     TmtPulseParser_parser_state parsed = capture_jsx(input, module);
@@ -4295,15 +4338,17 @@ static char *lower_jsx_module(uint8_t *source, uint32_t size, bool typescript, u
       result = render_jsx_module(input, spans, parsed.count, insertion, typescript, classic, length, complete, runs);
     }
   }
-  free(input.output);
-  free(input.marks);
-  free(spans);
+  if (owned_bufs) {
+    free(input.output);
+    free(input.marks);
+    free(spans);
+  }
   return result;
 }
 
 #endif
 
-char *tmt_lower_runtime(uint8_t *source, uint32_t size, bool jsx, bool typescript, unsigned classic,
+char *tmt_lower_runtime_ws(void *ws, uint8_t *source, uint32_t size, bool jsx, bool typescript, unsigned classic,
   bool mixed, size_t *length, bool *complete, tmt_run_log *runs)
 {
   *complete = false;
@@ -4314,22 +4359,31 @@ char *tmt_lower_runtime(uint8_t *source, uint32_t size, bool jsx, bool typescrip
   if (!size || classic > jsx_mode_preserve) return NULL;
   if (classic == jsx_mode_preserve) {
 #ifdef TMT_DIRECT
+    (void)ws;
     return NULL;
 #else
     /* JSX is kept only on the route that reads a whole module. */
-    return jsx && mixed ? lower_jsx_module(source, size, typescript, classic, length, complete, runs) : NULL;
+    return jsx && mixed ? lower_jsx_module(ws, source, size, typescript, classic, length, complete, runs) : NULL;
 #endif
   }
   if (mixed) {
 #ifdef TMT_DIRECT
+    (void)ws;
     return NULL;
 #else
     if (jsx) {
-      char *general = lower_jsx_module(source, size, typescript, classic, length, complete, runs);
+      char *general = lower_jsx_module(ws, source, size, typescript, classic, length, complete, runs);
       if (general || !typescript) return general;
     }
     return lower_mixed(source, size, jsx, classic, length, runs);
 #endif
   }
+  (void)ws;
   return lower_one(source, size, jsx, typescript, classic, length, runs);
+}
+
+char *tmt_lower_runtime(uint8_t *source, uint32_t size, bool jsx, bool typescript, unsigned classic,
+  bool mixed, size_t *length, bool *complete, tmt_run_log *runs)
+{
+  return tmt_lower_runtime_ws(NULL, source, size, jsx, typescript, classic, mixed, length, complete, runs);
 }

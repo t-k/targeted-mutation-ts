@@ -1,5 +1,6 @@
 #include <climits>
 #include <cstddef>
+#include <cstdlib>
 
 #include <v8.h>
 
@@ -8,6 +9,7 @@
 #include <vector>
 extern "C" {
 #include "fast-strip.h"
+#include "tmt_simd_scan.h"
 }
 #endif
 
@@ -229,32 +231,305 @@ static void emit_javascript(const v8::FunctionCallbackInfo<v8::Value>& args)
 }
 
 #ifndef TMT_AUDIT_V8
+/* Fast ASCII VLQ encoder for 1:1 byte-preserving projections (matches source-map.h). */
+static inline char *fast_vlq(char *p, int64_t value)
+{
+  static const char digits[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  uint64_t encoded = value < 0 ? (static_cast<uint64_t>(-value) << 1) | 1ULL : (static_cast<uint64_t>(value) << 1);
+  if (__builtin_expect(encoded < 32U, 1)) {
+    *p++ = digits[encoded];
+    return p;
+  }
+  do {
+    uint8_t digit = static_cast<uint8_t>(encoded & 31U);
+    encoded >>= 5;
+    if (encoded) digit |= 32U;
+    *p++ = digits[digit];
+  } while (encoded);
+  return p;
+}
+
+static inline bool fast_map_word(uint8_t b)
+{
+  return (tmt_id_lut[b] & 2U) != 0U;
+}
+
+/* Generates V3 source map `mappings` for an ASCII projection `source[0..size)` -> `code[0..length)`. */
+static size_t build_ascii_projection_map(const uint8_t *source, size_t size, const char *code, size_t length,
+                                         std::vector<char> &out)
+{
+  if (length < size) return 0;
+  const size_t need = size * 6 + 64;
+  if (out.size() < need) out.resize(need < 65536 ? 65536 : need);
+  char *p = out.data();
+  const uint8_t *to_bytes = reinterpret_cast<const uint8_t *>(code);
+  uint32_t line = 0, col = 0, gen = 0, last_gen = 0, last_line = 0, last_orig = 0;
+  bool first = true, boundary = true, mapped = false, word = false;
+
+  for (size_t i = 0; i < size; i++) {
+    const uint8_t from = source[i];
+    const uint8_t to = to_bytes[i];
+    if (to == from) {
+      if (to == ' ' || to == '\t') {
+#if !defined(TMT_SCALAR_SCANS) && (defined(__aarch64__) || (defined(__x86_64__) && defined(__SSE2__)))
+        if (size - i >= 16) {
+          const unsigned run = tmt_map_blank_count(source + i, to_bytes + i);
+          if (run > 1) {
+            boundary = true;
+            gen += run;
+            col += run;
+            i += run - 1;
+            continue;
+          }
+        }
+#endif
+        boundary = true;
+        gen++;
+        col++;
+        continue;
+      }
+      if (from == '\n' || from == '\r') {
+        if (from == '\r' && i + 1 < size && source[i + 1] == '\n') i++;
+        *p++ = ';';
+        line++;
+        col = 0;
+        gen = last_gen = 0;
+        first = boundary = true;
+        continue;
+      }
+      const bool kind = fast_map_word(to);
+      if (boundary || kind != word) {
+        if (!first) *p++ = ',';
+        p = fast_vlq(p, static_cast<int64_t>(gen) - last_gen);
+        *p++ = 'A';
+        const int64_t dline = static_cast<int64_t>(line) - last_line;
+        if (__builtin_expect(dline == 0, 1)) *p++ = 'A';
+        else p = fast_vlq(p, dline);
+        p = fast_vlq(p, static_cast<int64_t>(col) - last_orig);
+        last_gen = gen;
+        last_line = line;
+        last_orig = col;
+        first = false;
+        mapped = true;
+      }
+      word = kind;
+      boundary = false;
+#if !defined(TMT_SCALAR_SCANS) && (defined(__aarch64__) || (defined(__x86_64__) && defined(__SSE2__)))
+      if (kind && size - i >= 16) {
+        const unsigned run = tmt_map_word_count(source + i, to_bytes + i);
+        if (run > 1) {
+          gen += run;
+          col += run;
+          i += run - 1;
+          continue;
+        }
+      }
+#endif
+      gen++;
+      col++;
+      continue;
+    }
+    if (to == ' ' || to == '\t') {
+      boundary = true;
+    } else {
+      if (mapped) {
+        if (!first) *p++ = ',';
+        p = fast_vlq(p, static_cast<int64_t>(gen) - last_gen);
+        last_gen = gen;
+        first = false;
+        mapped = false;
+      }
+      boundary = true;
+    }
+    gen++;
+    col++;
+  }
+  return static_cast<size_t>(p - out.data());
+}
+
 /*
- * Direct V8 fast-path for default-option ASCII `.mts` modules: runs single-pass zero-alloc
+ * Direct V8 fast-path for default-option `.mts` modules: runs single-pass zero-alloc
  * `tmt_fast_strip_module`, creates the V8 string ONCE (or reuses the input string when unedited),
  * validates it with V8 `CompileModule`, and returns it directly with zero N-API overhead.
+ * Supports UTF-8 bytes inside comments and string literals.
  */
-static void emit_fast_module(const v8::FunctionCallbackInfo<v8::Value>& args)
+/* Generates V3 source map `mappings` for lowered ASCII runs `runs[0..run_count)`. */
+static size_t build_ascii_runs_map(const uint8_t *source, size_t size, const char *code, size_t length,
+                                   const fs_run_t *runs, uint32_t run_count, std::vector<char> &out)
+{
+  const size_t need = (length > size ? length : size) * 6 + 64;
+  if (out.size() < need) out.resize(need < 65536 ? 65536 : need);
+  char *p = out.data();
+  const uint8_t *to_bytes = reinterpret_cast<const uint8_t *>(code);
+  uint32_t src_line = 0, src_col = 0, src_off = 0;
+  uint32_t gen = 0, last_gen = 0, last_line = 0, last_orig = 0;
+  size_t out_at = 0;
+  bool first = true, mapped = false;
+
+  for (uint32_t ri = 0; ri < run_count; ri++) {
+    const fs_run_t run = runs[ri];
+    if (run.out < out_at || run.out + run.length > length || run.src + run.length > size) return 0;
+    /* Advance generated text between previous run and this run */
+    if (run.out > out_at) {
+      if (mapped) {
+        if (!first) *p++ = ',';
+        p = fast_vlq(p, static_cast<int64_t>(gen) - last_gen);
+        last_gen = gen;
+        first = false;
+        mapped = false;
+      }
+      for (; out_at < run.out; out_at++) {
+        const uint8_t c = to_bytes[out_at];
+        if (c == '\n' || c == '\r') {
+          if (c == '\r' && out_at + 1 < run.out && to_bytes[out_at + 1] == '\n') out_at++;
+          *p++ = ';';
+          gen = last_gen = 0;
+          first = true;
+          mapped = false;
+        } else {
+          gen++;
+        }
+      }
+    }
+    /* Advance source cursor to run.src */
+    while (src_off < run.src) {
+      const uint8_t c = source[src_off++];
+      if (c == '\n' || c == '\r') {
+        if (c == '\r' && src_off < run.src && source[src_off] == '\n') src_off++;
+        src_line++;
+        src_col = 0;
+      } else {
+        src_col++;
+      }
+    }
+    bool boundary = true, word = false;
+    for (uint32_t at = 0; at < run.length; at++) {
+      const uint8_t from = source[run.src + at];
+      const uint8_t to = to_bytes[run.out + at];
+      if (from == '\n' || from == '\r') {
+        if (from == '\r' && at + 1 < run.length && source[run.src + at + 1] == '\n') { at++; src_off++; }
+        *p++ = ';';
+        src_line++;
+        src_col = 0;
+        src_off++;
+        gen = last_gen = 0;
+        first = boundary = true;
+        mapped = false;
+        continue;
+      }
+      if (to != from && to != ' ' && to != '\t') {
+        if (mapped) {
+          if (!first) *p++ = ',';
+          p = fast_vlq(p, static_cast<int64_t>(gen) - last_gen);
+          last_gen = gen;
+          first = false;
+          mapped = false;
+        }
+        boundary = true;
+      } else if (to == ' ' || to == '\t') {
+        boundary = true;
+      } else {
+        const bool kind = fast_map_word(to);
+        if (boundary || kind != word) {
+          if (!first) *p++ = ',';
+          p = fast_vlq(p, static_cast<int64_t>(gen) - last_gen);
+          *p++ = 'A';
+          const int64_t dline = static_cast<int64_t>(src_line) - last_line;
+          if (__builtin_expect(dline == 0, 1)) *p++ = 'A';
+          else p = fast_vlq(p, dline);
+          p = fast_vlq(p, static_cast<int64_t>(src_col) - last_orig);
+          last_gen = gen;
+          last_line = src_line;
+          last_orig = src_col;
+          first = false;
+          mapped = true;
+        }
+        word = kind;
+        boundary = false;
+      }
+      gen++;
+      src_col++;
+      src_off++;
+    }
+    out_at = run.out + run.length;
+  }
+  /* Emit unmapped boundary and line breaks for any trailing generated bytes after the last run */
+  if (out_at < length) {
+    if (mapped) {
+      if (!first) *p++ = ',';
+      p = fast_vlq(p, static_cast<int64_t>(gen) - last_gen);
+      last_gen = gen;
+      first = false;
+      mapped = false;
+    }
+    for (; out_at < length; out_at++) {
+      const uint8_t c = to_bytes[out_at];
+      if (c == '\n' || c == '\r') {
+        if (c == '\r' && out_at + 1 < length && to_bytes[out_at + 1] == '\n') out_at++;
+        *p++ = ';';
+        gen = last_gen = 0;
+        first = true;
+        mapped = false;
+      } else {
+        gen++;
+      }
+    }
+  }
+  return static_cast<size_t>(p - out.data());
+}
+
+struct LowerBufGuard {
+  fs_lower_buf_t lb{nullptr, 0, 0, nullptr, 0, 0, false, false};
+  ~LowerBufGuard() { std::free(lb.data); std::free(lb.runs); }
+};
+
+static void emit_fast_module_impl(const v8::FunctionCallbackInfo<v8::Value>& args, bool mapped, bool esm)
 {
   if (args.Length() != 1) return;
   v8::Isolate *isolate = args.GetIsolate();
   static thread_local std::vector<uint8_t> in_buf;
   static thread_local std::vector<char> out_buf;
-  constexpr size_t limit = 1048576;
+  static thread_local std::vector<char> map_buf;
+  static thread_local LowerBufGuard lower_guard;
+  constexpr size_t limit = 8 * 1024 * 1024;
 
   const uint8_t *text = nullptr;
   size_t size = 0;
   v8::Local<v8::String> input_str;
   bool from_str = false;
+  bool ascii = true;
 
   if (args[0]->IsString()) {
     input_str = args[0].As<v8::String>();
-    if (!input_str->IsOneByte()) return;
-    size = static_cast<size_t>(input_str->Length());
-    if (!size || size > limit) return;
-    if (in_buf.size() < size) in_buf.resize(size < 65536 ? 65536 : size);
-    input_str->WriteOneByteV2(isolate, 0, static_cast<uint32_t>(size), in_buf.data(), 0);
-    if (ascii_prefix(in_buf.data(), size) != size) return;
+    const size_t chars = static_cast<size_t>(input_str->Length());
+    if (!chars || chars > limit) return;
+    if (input_str->IsOneByte()) {
+      size = chars;
+      if (in_buf.size() < size) in_buf.resize(size < 65536 ? 65536 : size);
+      input_str->WriteOneByteV2(isolate, 0, static_cast<uint32_t>(size), in_buf.data(), 0);
+      if (ascii_prefix(in_buf.data(), size) != size) {
+        if (mapped) return;
+        const size_t utf8_len = input_str->Utf8LengthV2(isolate);
+        if (!utf8_len || utf8_len > limit) return;
+        if (in_buf.size() < utf8_len) in_buf.resize(utf8_len < 65536 ? 65536 : utf8_len);
+        input_str->WriteUtf8V2(isolate, reinterpret_cast<char *>(in_buf.data()), utf8_len, 0);
+        size = utf8_len;
+        ascii = false;
+      }
+    } else {
+      if (mapped) return;
+      const size_t utf8_len = input_str->Utf8LengthV2(isolate);
+      if (!utf8_len || utf8_len > limit) return;
+      if (in_buf.size() < utf8_len) in_buf.resize(utf8_len < 65536 ? 65536 : utf8_len);
+      input_str->WriteUtf8V2(isolate, reinterpret_cast<char *>(in_buf.data()), utf8_len,
+                             v8::String::WriteFlags::kReplaceInvalidUtf8);
+      /* Decline lone surrogates (replaced with U+FFFD) and JS Unicode line terminators U+2028/U+2029 */
+      if (contains(in_buf.data(), utf8_len, "\xef\xbf\xbd") ||
+          contains(in_buf.data(), utf8_len, "\xe2\x80\xa8") ||
+          contains(in_buf.data(), utf8_len, "\xe2\x80\xa9")) return;
+      size = utf8_len;
+      ascii = false;
+    }
     text = in_buf.data();
     from_str = true;
   } else if (args[0]->IsUint8Array()) {
@@ -263,13 +538,14 @@ static void emit_fast_module(const v8::FunctionCallbackInfo<v8::Value>& args)
     size = view->ByteLength();
     if (!size || size > limit || buffer->IsSharedArrayBuffer()) return;
     text = static_cast<const uint8_t *>(buffer->Data()) + view->ByteOffset();
-    if (ascii_prefix(text, size) != size) return;
+    if (!valid_utf8(text, size, &ascii)) return;
+    if (!ascii && (mapped || contains(text, size, "\xe2\x80\xa8") || contains(text, size, "\xe2\x80\xa9"))) return;
   } else {
     return;
   }
 
-  /* Decline hashbangs and leading triple-slash directives to the full compiler. */
-  if (text[0] == '#') return;
+  /* Decline hashbangs, UTF-8 BOM, and leading triple-slash directives to the full compiler. */
+  if (text[0] == '#' || text[0] == 0xef) return;
   bool certain = true;
   const size_t first_at = trivia_end(text, size, 0, &certain);
   if (!certain || first_at >= size) return;
@@ -278,19 +554,58 @@ static void emit_fast_module(const v8::FunctionCallbackInfo<v8::Value>& args)
   if (out_buf.size() < size + 16) out_buf.resize(size + 16 < 65536 ? 65536 : size + 16);
   size_t out_len = 0;
   bool edited = false;
-  char *out = tmt_fast_strip_module(text, static_cast<uint32_t>(size),
-                                    static_cast<uint32_t>(first_at), true,
-                                    out_buf.data(), &out_len, &edited);
+  lower_guard.lb.record_runs = mapped;
+  char *out = tmt_fast_strip_module_ex(text, static_cast<uint32_t>(size),
+                                       static_cast<uint32_t>(first_at), esm,
+                                       out_buf.data(), &out_len, &edited,
+                                       &lower_guard.lb);
   if (!out) return;
 
   v8::Local<v8::String> result;
   if (!edited && from_str && out_len == size) {
     result = input_str;
-  } else if (!v8::String::NewFromOneByte(isolate, reinterpret_cast<const uint8_t *>(out),
-                                         v8::NewStringType::kNormal, static_cast<int>(out_len)).ToLocal(&result)) {
+  } else if (ascii ?
+      !v8::String::NewFromOneByte(isolate, reinterpret_cast<const uint8_t *>(out),
+                                  v8::NewStringType::kNormal, static_cast<int>(out_len)).ToLocal(&result) :
+      !v8::String::NewFromUtf8(isolate, out, v8::NewStringType::kNormal, static_cast<int>(out_len)).ToLocal(&result)) {
     return;
   }
-  if (valid_module(isolate, result, "ts")) args.GetReturnValue().Set(result);
+  if (!valid_module(isolate, result, "ts")) return;
+
+  if (!mapped) {
+    args.GetReturnValue().Set(result);
+    return;
+  }
+  v8::Local<v8::String> map_str;
+  if (out != lower_guard.lb.data && out_len < size) {
+    /* Compacted type-only `.mts` module (`export {};\n`) has empty mappings. */
+    map_str = v8::String::Empty(isolate);
+  } else {
+    const size_t map_len = (out == lower_guard.lb.data)
+      ? build_ascii_runs_map(text, size, out, out_len, lower_guard.lb.runs, lower_guard.lb.run_count, map_buf)
+      : build_ascii_projection_map(text, size, out, out_len, map_buf);
+    if (!v8::String::NewFromOneByte(isolate, reinterpret_cast<const uint8_t *>(map_buf.data()),
+                                    v8::NewStringType::kNormal, static_cast<int>(map_len)).ToLocal(&map_str)) {
+      return;
+    }
+  }
+  v8::Local<v8::Value> elems[2] = { result, map_str };
+  args.GetReturnValue().Set(v8::Array::New(isolate, elems, 2));
+}
+
+static void emit_fast_module(const v8::FunctionCallbackInfo<v8::Value>& args)
+{
+  emit_fast_module_impl(args, false, true);
+}
+
+static void emit_fast_module_mapped(const v8::FunctionCallbackInfo<v8::Value>& args)
+{
+  emit_fast_module_impl(args, true, true);
+}
+
+static void emit_fast_ts(const v8::FunctionCallbackInfo<v8::Value>& args)
+{
+  emit_fast_module_impl(args, false, false);
 }
 #endif
 
@@ -312,6 +627,14 @@ NODE_MODULE_INIT()
   v8::Local<v8::Function> fast_mod;
   if (!v8::Function::New(context, emit_fast_module).ToLocal(&fast_mod)) return;
   exports->Set(context, v8::String::NewFromUtf8Literal(context->GetIsolate(), "emitFastModule"), fast_mod)
+    .FromMaybe(false);
+  v8::Local<v8::Function> fast_mod_mapped;
+  if (!v8::Function::New(context, emit_fast_module_mapped).ToLocal(&fast_mod_mapped)) return;
+  exports->Set(context, v8::String::NewFromUtf8Literal(context->GetIsolate(), "emitFastModuleMapped"), fast_mod_mapped)
+    .FromMaybe(false);
+  v8::Local<v8::Function> fast_ts;
+  if (!v8::Function::New(context, emit_fast_ts).ToLocal(&fast_ts)) return;
+  exports->Set(context, v8::String::NewFromUtf8Literal(context->GetIsolate(), "emitFastTs"), fast_ts)
     .FromMaybe(false);
 #endif
 }

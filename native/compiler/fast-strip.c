@@ -1,6 +1,8 @@
 #include "fast-strip.h"
 #include "tmt_simd_scan.h"
 
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 /*
@@ -228,6 +230,9 @@ typedef struct {
   uint32_t pos;
   uint32_t prev_end;
   char *out;
+  fs_lower_buf_t *lb;
+  uint32_t flushed;
+  bool lowering;
   bool edited;
   bool failed;
   bool allow_regex;
@@ -239,6 +244,57 @@ typedef struct {
   uint32_t tpl_brace_depth[64];
   tok_t tok;
 } fs_t;
+
+static bool lb_reserve(fs_t *p, size_t extra) {
+  fs_lower_buf_t *lb = p->lb;
+  if (!lb || lb->failed) return false;
+  if (extra > (size_t)-1 - lb->len) { lb->failed = true; return false; }
+  const size_t need = lb->len + extra;
+  if (need <= lb->cap) return true;
+  size_t next = lb->cap ? lb->cap * 2 : (p->size + (p->size >> 2) + 4096);
+  if (next < need) next = need + 4096;
+  char *grown = realloc(lb->data, next);
+  if (!grown) { lb->failed = true; return false; }
+  lb->data = grown;
+  lb->cap = next;
+  return true;
+}
+
+static bool lb_append(fs_t *p, const void *bytes, size_t n) {
+  if (!n) return true;
+  if (!lb_reserve(p, n)) return false;
+  memcpy(p->lb->data + p->lb->len, bytes, n);
+  p->lb->len += n;
+  return true;
+}
+
+static bool lb_puts(fs_t *p, const char *s) {
+  return lb_append(p, s, strlen(s));
+}
+
+static bool lb_flush_to(fs_t *p, uint32_t up_to) {
+  if (!p->lb || up_to < p->flushed || up_to > p->size) return false;
+  p->lowering = true;
+  const uint32_t n = up_to - p->flushed;
+  if (n) {
+    if (p->lb->record_runs) {
+      if (p->lb->run_count >= p->lb->run_cap) {
+        const uint32_t next_cap = p->lb->run_cap ? p->lb->run_cap * 2 : 64;
+        fs_run_t *nr = realloc(p->lb->runs, next_cap * sizeof(*nr));
+        if (!nr) { p->lb->failed = true; return false; }
+        p->lb->runs = nr;
+        p->lb->run_cap = next_cap;
+      }
+      p->lb->runs[p->lb->run_count++] = (fs_run_t){
+        .out = (uint32_t)p->lb->len, .src = p->flushed, .length = n
+      };
+    }
+    const char *base = p->edited ? p->out : (const char *)p->src;
+    if (!lb_append(p, base + p->flushed, n)) return false;
+  }
+  p->flushed = up_to;
+  return true;
+}
 
 static inline bool is_id_start(uint8_t c) { return (tmt_id_lut[c] & 1U) != 0U; }
 static inline bool is_id_cont(uint8_t c) { return (tmt_id_lut[c] & 2U) != 0U; }
@@ -270,6 +326,7 @@ static void blank_span(fs_t *p, uint32_t first, uint32_t last, bool sep) {
 #endif
   while (i < last) {
     const uint8_t c = p->src[i];
+    if (c >= 0x80U) { p->failed = true; return; }
     if (c != '\n' && c != '\r') p->out[i] = ' ';
     i++;
   }
@@ -1268,6 +1325,7 @@ static bool parse_runtime_params(fs_t *p, bool is_constructor) {
       return false;
     }
     if (idx == 0 && tok_is_kw(p, KW_THIS)) {
+      if (is_constructor) return false;
       const uint32_t this_start = p->tok.start;
       if (!next_tok(p) || !tok_is_punc(p, ':')) return false;
       if (!next_tok(p) || !parse_type(p, 0)) return false;
@@ -1313,7 +1371,15 @@ static bool parse_runtime_params(fs_t *p, bool is_constructor) {
         else if (tok_is_punc(p, ')') || tok_is_punc(p, ']') || tok_is_punc(p, '}')) {
           if (d == 0) break;
           d--;
-        } else if (tok_is_kw(p, KW_AS) || tok_is_kw(p, KW_SATISFIES) || tok_is_punc(p, '<')) {
+        } else if (tok_is_kw(p, KW_AS) || tok_is_kw(p, KW_SATISFIES)) {
+          return false;
+        } else if (tok_is_punc(p, '<')) {
+          fs_mark_t m = save_mark(p);
+          if (parse_type_args(p, 0) && !p->tok.had_nl && tok_is_punc(p, '(')) {
+            blank_span(p, m.tok.start, p->prev_end, false);
+            continue;
+          }
+          restore_mark(p, m);
           return false;
         }
         if (!next_tok(p)) return false;
@@ -1382,7 +1448,13 @@ static bool parse_class_header(fs_t *p) {
 
 /* Parse `{ [type] a [as b], ... }` in `import` or `export`, erasing inline `type` specifiers.
  * Declines (returns false) if ALL specifiers are type-only so Pulse/elision decides it. */
-static bool parse_named_specifiers(fs_t *p) {
+typedef struct {
+  uint32_t name_start, name_len;
+  uint32_t spec_start, spec_end;
+  bool elided;
+} fs_imp_spec_t;
+
+static bool parse_named_specifiers_ex(fs_t *p, fs_imp_spec_t *imp_specs, uint32_t *imp_count, uint32_t imp_cap) {
   if (!tok_is_punc(p, '{')) return false;
   if (!next_tok(p)) return false;
   uint32_t erased = 0, kept = 0;
@@ -1400,11 +1472,9 @@ static bool parse_named_specifiers(fs_t *p) {
           fs_mark_t m2 = save_mark(p);
           if (!next_tok(p)) return false;
           if (tok_is_kw(p, KW_AS)) {
-            /* `type as as foo` -> `type` is modifier, name is `as` */
             restore_mark(p, m2);
             is_type_spec = true;
           } else {
-            /* `type as foo` -> value named `type` aliased to `foo` */
             restore_mark(p, m);
           }
         } else {
@@ -1415,10 +1485,18 @@ static bool parse_named_specifiers(fs_t *p) {
       }
     }
     if (p->tok.kind != TOK_ID && p->tok.kind != TOK_STR) return false;
+    const uint32_t name_start = p->tok.start;
+    const uint32_t name_len = p->tok.end - p->tok.start;
+    const bool plain_id = (p->tok.kind == TOK_ID);
+    bool has_alias = false;
+    uint32_t local_start = name_start, local_len = name_len;
     if (!next_tok(p)) return false;
     if (tok_is_kw(p, KW_AS)) {
+      has_alias = true;
       if (!next_tok(p)) return false;
       if (p->tok.kind != TOK_ID && p->tok.kind != TOK_STR) return false;
+      local_start = p->tok.start;
+      local_len = p->tok.end - p->tok.start;
       if (!next_tok(p)) return false;
     }
     uint32_t spec_end = p->prev_end;
@@ -1435,6 +1513,12 @@ static bool parse_named_specifiers(fs_t *p) {
       erased++;
     } else {
       kept++;
+      if (imp_specs && imp_count && *imp_count < imp_cap && (plain_id || has_alias)) {
+        imp_specs[(*imp_count)++] = (fs_imp_spec_t){
+          .name_start = local_start, .name_len = local_len,
+          .spec_start = spec_start, .spec_end = spec_end, .elided = false,
+        };
+      }
     }
   }
   if (erased > 0) {
@@ -1442,6 +1526,23 @@ static bool parse_named_specifiers(fs_t *p) {
     for (uint32_t i = 0; i < erased; i++) blank_span(p, spans[i][0], spans[i][1], false);
   }
   return next_tok(p);
+}
+
+static void blank_imp_spec(fs_t *p, fs_imp_spec_t *sp) {
+  if (sp->elided) return;
+  sp->elided = true;
+  if (p->lowering && sp->spec_end <= p->flushed && sp->spec_end <= p->lb->len) {
+    /* Specifier was already flushed verbatim at the same offset before the first lowering */
+    for (uint32_t i = sp->spec_start; i < sp->spec_end; i++) {
+      if (p->src[i] != '\n' && p->src[i] != '\r') p->lb->data[i] = ' ';
+    }
+  } else {
+    blank_span(p, sp->spec_start, sp->spec_end, false);
+  }
+}
+
+static bool parse_named_specifiers(fs_t *p) {
+  return parse_named_specifiers_ex(p, NULL, NULL, 0);
 }
 
 static bool skip_import_attrs(fs_t *p) {
@@ -1463,18 +1564,299 @@ static bool skip_import_attrs(fs_t *p) {
   return true;
 }
 
+/* Constant integer expression evaluator for simple enum / const enum initializers */
+typedef struct {
+  uint32_t name_start;
+  uint32_t name_len;
+  uint32_t str_start;
+  uint32_t str_len;
+  int64_t val;
+  bool is_str;
+} fs_enum_member_t;
+
+static const int64_t FS_MAX_SAFE_INT = INT64_C(9007199254740991);
+
+static bool parse_int_literal(const uint8_t *s, uint32_t len, int64_t *out) {
+  if (!len || s[len - 1] == 'n' || s[len - 1] == '_') return false;
+  uint64_t v = 0;
+  if (len >= 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X' || s[1] == 'b' || s[1] == 'B' || s[1] == 'o' || s[1] == 'O')) {
+    if (len < 3 || s[2] == '_') return false;
+    const uint8_t base_ch = s[1] | 32;
+    const uint64_t base = base_ch == 'x' ? 16 : base_ch == 'b' ? 2 : 8;
+    uint32_t digits = 0;
+    bool prev_sep = false;
+    for (uint32_t i = 2; i < len; i++) {
+      const uint8_t c = s[i];
+      if (c == '_') {
+        if (prev_sep) return false;
+        prev_sep = true;
+        continue;
+      }
+      prev_sep = false;
+      uint64_t d;
+      if (c >= '0' && c <= '9') d = (uint64_t)(c - '0');
+      else if (c >= 'a' && c <= 'f') d = (uint64_t)(c - 'a' + 10);
+      else if (c >= 'A' && c <= 'F') d = (uint64_t)(c - 'A' + 10);
+      else return false;
+      if (d >= base || v > ((uint64_t)FS_MAX_SAFE_INT - d) / base) return false;
+      v = v * base + d;
+      digits++;
+    }
+    if (!digits || prev_sep) return false;
+  } else {
+    if (s[0] == '_' || (len > 1 && s[0] == '0')) return false;
+    bool prev_sep = false;
+    for (uint32_t i = 0; i < len; i++) {
+      const uint8_t c = s[i];
+      if (c == '_') {
+        if (prev_sep) return false;
+        prev_sep = true;
+        continue;
+      }
+      prev_sep = false;
+      if (c < '0' || c > '9') return false; /* Reject floats / exponents */
+      const uint64_t d = (uint64_t)(c - '0');
+      if (v > ((uint64_t)FS_MAX_SAFE_INT - d) / 10) return false;
+      v = v * 10 + d;
+    }
+    if (prev_sep) return false;
+  }
+  *out = (int64_t)v;
+  return true;
+}
+
+static bool eval_enum_bitor(fs_t *p, const fs_enum_member_t *ms, uint32_t count, int64_t *out, uint32_t depth);
+
+static bool eval_enum_unary(fs_t *p, const fs_enum_member_t *ms, uint32_t count, int64_t *out, uint32_t depth) {
+  if (depth > 32) return false;
+  if (tok_is_punc(p, '-')) {
+    if (!next_tok(p) || !eval_enum_unary(p, ms, count, out, depth + 1)) return false;
+    if (*out < -FS_MAX_SAFE_INT || *out > FS_MAX_SAFE_INT) return false;
+    *out = -*out;
+    return true;
+  }
+  if (tok_is_punc(p, '+')) {
+    if (!next_tok(p) || !eval_enum_unary(p, ms, count, out, depth + 1)) return false;
+    return true;
+  }
+  if (tok_is_punc(p, '~')) {
+    if (!next_tok(p) || !eval_enum_unary(p, ms, count, out, depth + 1)) return false;
+    *out = (int64_t)(~(int32_t)*out);
+    return true;
+  }
+  if (tok_is_punc(p, '(')) {
+    if (!next_tok(p) || !eval_enum_bitor(p, ms, count, out, depth + 1)) return false;
+    if (!tok_is_punc(p, ')')) return false;
+    return next_tok(p);
+  }
+  if (p->tok.kind == TOK_NUM) {
+    if (!parse_int_literal(p->src + p->tok.start, p->tok.end - p->tok.start, out)) return false;
+    return next_tok(p);
+  }
+  if (p->tok.kind == TOK_ID) {
+    const uint32_t len = p->tok.end - p->tok.start;
+    for (uint32_t i = 0; i < count; i++) {
+      if (!ms[i].is_str && ms[i].name_len == len &&
+          memcmp(p->src + ms[i].name_start, p->src + p->tok.start, len) == 0) {
+        *out = ms[i].val;
+        return next_tok(p);
+      }
+    }
+  }
+  return false;
+}
+
+static bool eval_enum_mul(fs_t *p, const fs_enum_member_t *ms, uint32_t count, int64_t *out, uint32_t depth) {
+  if (!eval_enum_unary(p, ms, count, out, depth)) return false;
+  while (tok_is_punc(p, '*')) {
+    int64_t rhs = 0;
+    if (!next_tok(p) || !eval_enum_unary(p, ms, count, &rhs, depth + 1)) return false;
+    const __int128 prod = (__int128)(*out) * (__int128)rhs;
+    if (prod < -(__int128)FS_MAX_SAFE_INT || prod > (__int128)FS_MAX_SAFE_INT) return false;
+    *out = (int64_t)prod;
+  }
+  return true;
+}
+
+static bool eval_enum_add(fs_t *p, const fs_enum_member_t *ms, uint32_t count, int64_t *out, uint32_t depth) {
+  if (!eval_enum_mul(p, ms, count, out, depth)) return false;
+  while (tok_is_punc(p, '+') || tok_is_punc(p, '-')) {
+    const uint8_t op = p->tok.ch;
+    int64_t rhs = 0;
+    if (!next_tok(p) || !eval_enum_mul(p, ms, count, &rhs, depth + 1)) return false;
+    const __int128 res = op == '+' ? ((__int128)(*out) + (__int128)rhs) : ((__int128)(*out) - (__int128)rhs);
+    if (res < -(__int128)FS_MAX_SAFE_INT || res > (__int128)FS_MAX_SAFE_INT) return false;
+    *out = (int64_t)res;
+  }
+  return true;
+}
+
+static bool eval_enum_shift(fs_t *p, const fs_enum_member_t *ms, uint32_t count, int64_t *out, uint32_t depth) {
+  if (!eval_enum_add(p, ms, count, out, depth)) return false;
+  while (p->tok.kind == TOK_OP2 && (p->tok.ch == '<' || p->tok.ch == '>')) {
+    const uint32_t len = p->tok.end - p->tok.start;
+    const uint8_t ch = p->tok.ch;
+    if (!((ch == '<' && len == 2 && p->src[p->tok.start + 1] == '<') ||
+          (ch == '>' && len == 2 && p->src[p->tok.start + 1] == '>') ||
+          (ch == '>' && len == 3 && p->src[p->tok.start + 1] == '>' && p->src[p->tok.start + 2] == '>'))) {
+      break;
+    }
+    int64_t rhs = 0;
+    if (!next_tok(p) || !eval_enum_add(p, ms, count, &rhs, depth + 1)) return false;
+    const uint32_t sh = (uint32_t)rhs & 31U;
+    if (ch == '<') *out = (int64_t)(int32_t)((uint32_t)(int32_t)*out << sh);
+    else if (len == 2) *out = (int64_t)((int32_t)*out >> sh);
+    else *out = (int64_t)((uint32_t)(int32_t)*out >> sh);
+  }
+  return true;
+}
+
+static bool eval_enum_bitand(fs_t *p, const fs_enum_member_t *ms, uint32_t count, int64_t *out, uint32_t depth) {
+  if (!eval_enum_shift(p, ms, count, out, depth)) return false;
+  while (tok_is_punc(p, '&')) {
+    int64_t rhs = 0;
+    if (!next_tok(p) || !eval_enum_shift(p, ms, count, &rhs, depth + 1)) return false;
+    *out = (int64_t)((int32_t)*out & (int32_t)rhs);
+  }
+  return true;
+}
+
+static bool eval_enum_bitxor(fs_t *p, const fs_enum_member_t *ms, uint32_t count, int64_t *out, uint32_t depth) {
+  if (!eval_enum_bitand(p, ms, count, out, depth)) return false;
+  while (tok_is_punc(p, '^')) {
+    int64_t rhs = 0;
+    if (!next_tok(p) || !eval_enum_bitand(p, ms, count, &rhs, depth + 1)) return false;
+    *out = (int64_t)((int32_t)*out ^ (int32_t)rhs);
+  }
+  return true;
+}
+
+static bool eval_enum_bitor(fs_t *p, const fs_enum_member_t *ms, uint32_t count, int64_t *out, uint32_t depth) {
+  if (!eval_enum_bitxor(p, ms, count, out, depth)) return false;
+  while (tok_is_punc(p, '|')) {
+    int64_t rhs = 0;
+    if (!next_tok(p) || !eval_enum_bitxor(p, ms, count, &rhs, depth + 1)) return false;
+    *out = (int64_t)((int32_t)*out | (int32_t)rhs);
+  }
+  return true;
+}
+
+static bool parse_and_lower_enum(fs_t *p, uint32_t decl_start, bool is_export,
+                                 const uint8_t *ns_name, uint32_t ns_len) {
+  /* Current token is `enum`. Requires p->lb != NULL. */
+  if (!p->lb) return false;
+  if (!next_tok(p) || is_ts_reserved_type_name(p)) return false;
+  const uint32_t name_start = p->tok.start;
+  const uint32_t name_len = p->tok.end - p->tok.start;
+  if (!next_tok(p) || !tok_is_punc(p, '{')) return false;
+  if (!next_tok(p)) return false;
+
+  fs_enum_member_t members[256];
+  uint32_t count = 0;
+  int64_t next_val = 0;
+  bool has_next = true;
+  while (!tok_is_punc(p, '}')) {
+    if (count >= 256 || p->tok.kind != TOK_ID) return false;
+    fs_enum_member_t m = { .name_start = p->tok.start, .name_len = p->tok.end - p->tok.start };
+    if (!next_tok(p)) return false;
+    if (tok_is_punc(p, '=')) {
+      if (!next_tok(p)) return false;
+      if (p->tok.kind == TOK_STR) {
+        m.is_str = true;
+        m.str_start = p->tok.start;
+        m.str_len = p->tok.end - p->tok.start;
+        has_next = false;
+        if (!next_tok(p)) return false;
+      } else {
+        int64_t val = 0;
+        if (!eval_enum_bitor(p, members, count, &val, 0)) return false;
+        m.val = val;
+        if (val < FS_MAX_SAFE_INT) {
+          next_val = val + 1;
+          has_next = true;
+        } else {
+          has_next = false;
+        }
+      }
+    } else {
+      if (!has_next) return false;
+      m.val = next_val;
+      if (next_val < FS_MAX_SAFE_INT) next_val++;
+      else has_next = false;
+    }
+    members[count++] = m;
+    if (tok_is_punc(p, ',')) {
+      if (!next_tok(p)) return false;
+      if (tok_is_punc(p, '}')) break;
+    } else if (!tok_is_punc(p, '}')) {
+      return false;
+    }
+  }
+  const uint32_t enum_end = p->tok.end;
+  if (!next_tok(p)) return false;
+
+  if (!lb_flush_to(p, decl_start)) return false;
+  if (is_export && !ns_name) {
+    if (!lb_puts(p, "export ")) return false;
+  }
+  /* Match lowering.c's exact single-line enum emission format for byte-identical output */
+  if (!lb_puts(p, "var ") || !lb_append(p, p->src + name_start, name_len) ||
+      !lb_puts(p, "; (function (") || !lb_append(p, p->src + name_start, name_len) || !lb_puts(p, ") {")) {
+    return false;
+  }
+  char num_buf[32];
+  for (uint32_t i = 0; i < count; i++) {
+    const fs_enum_member_t *m = &members[i];
+    if (m->is_str) {
+      if (!lb_append(p, p->src + name_start, name_len) || !lb_puts(p, "[\"") ||
+          !lb_append(p, p->src + m->name_start, m->name_len) || !lb_puts(p, "\"]=") ||
+          !lb_append(p, p->src + m->str_start, m->str_len) || !lb_puts(p, ";")) return false;
+    } else {
+      const int nlen = snprintf(num_buf, sizeof(num_buf), "%lld", (long long)m->val);
+      if (nlen <= 0) return false;
+      if (!lb_append(p, p->src + name_start, name_len) || !lb_puts(p, "[") ||
+          !lb_append(p, p->src + name_start, name_len) || !lb_puts(p, "[\"") ||
+          !lb_append(p, p->src + m->name_start, m->name_len) || !lb_puts(p, "\"]=") ||
+          !lb_append(p, num_buf, (size_t)nlen) || !lb_puts(p, "]=\"") ||
+          !lb_append(p, p->src + m->name_start, m->name_len) || !lb_puts(p, "\";")) return false;
+    }
+  }
+  if (!lb_puts(p, "})(")) return false;
+  if (is_export && ns_name) {
+    if (!lb_append(p, p->src + name_start, name_len) || !lb_puts(p, "=") ||
+        !lb_append(p, ns_name, ns_len) || !lb_puts(p, ".") || !lb_append(p, p->src + name_start, name_len) ||
+        !lb_puts(p, "||(") || !lb_append(p, ns_name, ns_len) || !lb_puts(p, ".") ||
+        !lb_append(p, p->src + name_start, name_len) || !lb_puts(p, "={}));")) return false;
+  } else {
+    if (!lb_append(p, p->src + name_start, name_len) || !lb_puts(p, "||(") ||
+        !lb_append(p, p->src + name_start, name_len) || !lb_puts(p, "={}));")) return false;
+  }
+  p->flushed = enum_end;
+  p->has_runtime_stmt = true;
+  if (is_export && !ns_name) p->has_runtime_mod = true;
+  return true;
+}
+
 /* Main single-pass scan over module tokens */
-char *tmt_fast_strip_module(const uint8_t *source, uint32_t size, uint32_t first_at, bool esm,
-  char *out_buf, size_t *out_len, bool *edited)
+char *tmt_fast_strip_module_ex(const uint8_t *source, uint32_t size, uint32_t first_at, bool esm,
+  char *out_buf, size_t *out_len, bool *edited, fs_lower_buf_t *lower_buf)
 {
   *edited = false;
   if (!source || !size || !out_buf) return NULL;
+  if (lower_buf) {
+    lower_buf->len = 0;
+    lower_buf->run_count = 0;
+    lower_buf->failed = false;
+  }
 
   fs_t p = {
     .src = source,
     .size = size,
     .pos = first_at <= size ? first_at : 0U,
     .out = out_buf,
+    .lb = lower_buf,
+    .flushed = 0,
+    .lowering = false,
     .edited = false,
     .failed = false,
     .allow_regex = true,
@@ -1488,10 +1870,36 @@ char *tmt_fast_strip_module(const uint8_t *source, uint32_t size, uint32_t first
   if (!next_tok(&p)) return NULL;
   if (p.tok.kind == TOK_EOF) return NULL;
 
-  enum { SCOPE_BLOCK = 0, SCOPE_CLASS = 1 };
-  uint8_t scope_kind[64];
+  enum { SCOPE_BLOCK = 0, SCOPE_CLASS = 1, SCOPE_NAMESPACE = 2 };
+  uint8_t scope_kind[64] = {0};
+  uint32_t scope_paren[64] = {0};
+  uint32_t scope_bracket[64] = {0};
+  uint32_t scope_ternary[64] = {0};
+  uint32_t scope_ns_exp_start[64] = {0};
+  uint32_t scope_ns_exp_len[64] = {0};
+  int32_t ns_var_decl_depth = -1;
+  typedef struct {
+    uint32_t name_start, name_len;
+    uint32_t outer_start, outer_len;
+    bool is_export;
+    uint32_t var_starts[64];
+    uint32_t var_lens[64];
+    uint32_t var_count;
+  } fs_ns_t;
+  fs_ns_t ns_stack[8];
+  uint32_t ns_depth = 0;
+  uint32_t top_lowered_starts[64];
+  uint32_t top_lowered_lens[64];
+  uint32_t top_lowered_count = 0;
+  /* For `.ts` modules (`!esm`), track named imports in a static-sized buffer only when needed,
+   * and respect Custard's 2048 top-level declaration table bound. */
+  static _Thread_local fs_imp_spec_t imp_specs[2048];
+  uint32_t imp_spec_count = 0;
+  uint32_t top_decl_count = 0;
+
   uint8_t paren_stmt_hdr[64];
   bool stmt_start = true;
+  bool in_case = false;
   uint32_t ternary_depth = 0;
   uint32_t paren_depth = 0;
   uint32_t bracket_depth = 0;
@@ -1501,8 +1909,32 @@ char *tmt_fast_strip_module(const uint8_t *source, uint32_t size, uint32_t first
   bool prev_can_precede_arrow = true;
   bool has_pending_export = false;
   uint32_t pending_export_start = 0;
+  bool pending_ns_export = false;
+  uint32_t pending_ns_export_start = 0;
 
   while (p.tok.kind != TOK_EOF) {
+    /* Reject multi-declarator `export const/let/var a = 1, b = 2` inside a lowered namespace */
+    if (ns_var_decl_depth >= 0) {
+      if ((int32_t)p.depth < ns_var_decl_depth) {
+        ns_var_decl_depth = -1;
+      } else if ((int32_t)p.depth == ns_var_decl_depth && paren_depth == 0 && bracket_depth == 0) {
+        if (tok_is_punc(&p, ',')) return NULL;
+        if (tok_is_punc(&p, ';') || tok_is_punc(&p, '}')) {
+          ns_var_decl_depth = -1;
+        } else if (p.tok.had_nl && p.tok.kw != KW_NONE &&
+                   (p.tok.kw == KW_EXPORT || p.tok.kw == KW_CONST || p.tok.kw == KW_LET ||
+                    p.tok.kw == KW_VAR || p.tok.kw == KW_FUNCTION || p.tok.kw == KW_CLASS ||
+                    p.tok.kw == KW_ENUM || p.tok.kw == KW_NAMESPACE || p.tok.kw == KW_TYPE ||
+                    p.tok.kw == KW_INTERFACE || p.tok.kw == KW_DECLARE || p.tok.kw == KW_RETURN ||
+                    p.tok.kw == KW_IF || p.tok.kw == KW_FOR || p.tok.kw == KW_WHILE ||
+                    p.tok.kw == KW_SWITCH || p.tok.kw == KW_TRY || p.tok.kw == KW_THROW ||
+                    p.tok.kw == KW_ASYNC || p.tok.kw == KW_ABSTRACT || p.tok.kw == KW_DO ||
+                    p.tok.kw == KW_BREAK || p.tok.kw == KW_CONTINUE)) {
+          ns_var_decl_depth = -1;
+        }
+      }
+    }
+
     /* Template interpolation closing `}` */
     if (p.tpl_depth > 0 && tok_is_punc(&p, '}') && p.depth == p.tpl_brace_depth[p.tpl_depth - 1]) {
       p.tpl_depth--;
@@ -1525,10 +1957,21 @@ char *tmt_fast_strip_module(const uint8_t *source, uint32_t size, uint32_t first
       }
       if (tok_is_punc(&p, '}')) {
         p.depth--;
+        paren_depth = scope_paren[p.depth];
+        bracket_depth = scope_bracket[p.depth];
+        ternary_depth = scope_ternary[p.depth];
+        if (scope_ns_exp_len[p.depth] > 0 && ns_depth > 0) {
+          const fs_ns_t *cur_ns = &ns_stack[ns_depth - 1];
+          if (!lb_flush_to(&p, p.tok.end)) return NULL;
+          if (!lb_puts(&p, "\n") || !lb_append(&p, source + cur_ns->name_start, cur_ns->name_len) ||
+              !lb_puts(&p, ".") || !lb_append(&p, source + scope_ns_exp_start[p.depth], scope_ns_exp_len[p.depth]) ||
+              !lb_puts(&p, " = ") || !lb_append(&p, source + scope_ns_exp_start[p.depth], scope_ns_exp_len[p.depth]) ||
+              !lb_puts(&p, ";")) return NULL;
+        }
         prev_kind = TOK_PUNC;
         prev_ch = '}';
         if (!next_tok(&p)) return NULL;
-        stmt_start = true;
+        stmt_start = (paren_depth == 0 && bracket_depth == 0 && ternary_depth == 0);
         continue;
       }
       const uint32_t member_start = p.tok.start;
@@ -1639,6 +2082,9 @@ char *tmt_fast_strip_module(const uint8_t *source, uint32_t size, uint32_t first
         if (tp_start < tp_end) blank_span(&p, tp_start, tp_end, false);
         if (rt_start < rt_end) blank_span(&p, rt_start, rt_end, false);
         if (p.depth >= 64) return NULL;
+        scope_paren[p.depth] = paren_depth; scope_bracket[p.depth] = bracket_depth; scope_ternary[p.depth] = ternary_depth;
+        paren_depth = 0; bracket_depth = 0; ternary_depth = 0;
+        scope_ns_exp_len[p.depth] = 0;
         scope_kind[p.depth++] = SCOPE_BLOCK;
         prev_kind = TOK_PUNC;
         prev_ch = '{';
@@ -1692,9 +2138,176 @@ char *tmt_fast_strip_module(const uint8_t *source, uint32_t size, uint32_t first
     /* Statement-start constructs (top-level or block-level) */
     if (stmt_start && paren_depth == 0 && bracket_depth == 0 && ternary_depth == 0) {
       const uint8_t kw = p.tok.kw;
+      const bool in_ns = (p.depth > 0 && scope_kind[p.depth - 1] == SCOPE_NAMESPACE);
       const bool need_sep = p.has_runtime_stmt && prev_kind != TOK_EOF &&
         !(prev_kind == TOK_PUNC && (prev_ch == ';' || prev_ch == '}' || prev_ch == '{'));
-      if (kw == KW_ENUM || kw == KW_NAMESPACE || kw == KW_USING) return NULL;
+      if (kw == KW_USING) return NULL;
+      if (kw == KW_ENUM) {
+        if (!p.lb) return NULL;
+        const uint32_t decl_s = p.tok.start;
+        /* Reject duplicate top-level enum/namespace name (merged declarations fall back) */
+        fs_mark_t m = save_mark(&p);
+        if (!next_tok(&p) || is_ts_reserved_type_name(&p)) return NULL;
+        const uint32_t ns_s = p.tok.start, ns_l = p.tok.end - p.tok.start;
+        restore_mark(&p, m);
+        if (p.depth == 0) {
+          for (uint32_t ti = 0; ti < top_lowered_count; ti++) {
+            if (top_lowered_lens[ti] == ns_l && memcmp(source + top_lowered_starts[ti], source + ns_s, ns_l) == 0) return NULL;
+          }
+          if (top_lowered_count >= 64) return NULL;
+          top_lowered_starts[top_lowered_count] = ns_s;
+          top_lowered_lens[top_lowered_count++] = ns_l;
+        }
+        if (!parse_and_lower_enum(&p, decl_s, false, NULL, 0)) return NULL;
+        has_pending_export = false;
+        pending_ns_export = false;
+        stmt_start = true;
+        prev_kind = TOK_PUNC;
+        prev_ch = ';';
+        continue;
+      }
+      if (kw == KW_NAMESPACE) {
+        fs_mark_t m = save_mark(&p);
+        const uint32_t decl_s = p.tok.start;
+        if (!next_tok(&p)) return NULL;
+        if (p.tok.had_nl || is_ts_reserved_type_name(&p)) {
+          /* Contextual identifier named `namespace` (e.g. `namespace = 'svg'`) */
+          restore_mark(&p, m);
+          goto normal_tok;
+        }
+        const uint32_t name_s = p.tok.start, name_l = p.tok.end - p.tok.start;
+        if (!next_tok(&p)) return NULL;
+        if (!tok_is_punc(&p, '{')) {
+          restore_mark(&p, m);
+          return NULL; /* Dotted `namespace A.B` -> fallback */
+        }
+        if (!p.lb || (!in_ns && p.depth != 0) || ns_depth >= 8 || p.depth >= 64) return NULL;
+        if (p.depth == 0) {
+          for (uint32_t ti = 0; ti < top_lowered_count; ti++) {
+            if (top_lowered_lens[ti] == name_l && memcmp(source + top_lowered_starts[ti], source + name_s, name_l) == 0) return NULL;
+          }
+          if (top_lowered_count >= 64) return NULL;
+          top_lowered_starts[top_lowered_count] = name_s;
+          top_lowered_lens[top_lowered_count++] = name_l;
+        }
+        if (!lb_flush_to(&p, decl_s)) return NULL;
+        if (!lb_puts(&p, "var ") || !lb_append(&p, source + name_s, name_l) ||
+            !lb_puts(&p, ";\n(function (") || !lb_append(&p, source + name_s, name_l) || !lb_puts(&p, ") {\n")) {
+          return NULL;
+        }
+        p.flushed = p.tok.end;
+        p.has_runtime_stmt = true;
+        scope_paren[p.depth] = paren_depth; scope_bracket[p.depth] = bracket_depth; scope_ternary[p.depth] = ternary_depth;
+        paren_depth = 0; bracket_depth = 0; ternary_depth = 0;
+        scope_ns_exp_start[p.depth] = 0;
+        scope_ns_exp_len[p.depth] = 0;
+        scope_kind[p.depth++] = SCOPE_NAMESPACE;
+        ns_stack[ns_depth++] = (fs_ns_t){ .name_start = name_s, .name_len = name_l, .is_export = false };
+        if (!next_tok(&p)) return NULL;
+        stmt_start = true;
+        prev_kind = TOK_PUNC;
+        prev_ch = '{';
+        continue;
+      }
+      /* `export ...` directly inside a lowered namespace */
+      if (in_ns && kw == KW_EXPORT) {
+        const uint32_t exp_start = p.tok.start;
+        const fs_ns_t *cur_ns = &ns_stack[ns_depth - 1];
+        if (!next_tok(&p)) return NULL;
+        if (tok_is_kw(&p, KW_TYPE)) {
+          if (!parse_type_alias(&p, exp_start, need_sep)) return NULL;
+          stmt_start = true;
+          continue;
+        }
+        if (tok_is_kw(&p, KW_INTERFACE)) {
+          if (!parse_interface_decl(&p, exp_start, need_sep)) return NULL;
+          stmt_start = true;
+          continue;
+        }
+        if (tok_is_kw(&p, KW_DECLARE)) {
+          if (!parse_declare_stmt(&p, exp_start, need_sep)) return NULL;
+          stmt_start = true;
+          continue;
+        }
+        if (tok_is_kw(&p, KW_ENUM)) {
+          if (!parse_and_lower_enum(&p, exp_start, true, source + cur_ns->name_start, cur_ns->name_len)) return NULL;
+          stmt_start = true;
+          prev_kind = TOK_PUNC;
+          prev_ch = ';';
+          continue;
+        }
+        if (tok_is_kw(&p, KW_CONST)) {
+          fs_mark_t m = save_mark(&p);
+          if (!next_tok(&p)) return NULL;
+          if (tok_is_kw(&p, KW_ENUM)) {
+            if (!parse_and_lower_enum(&p, exp_start, true, source + cur_ns->name_start, cur_ns->name_len)) return NULL;
+            stmt_start = true;
+            prev_kind = TOK_PUNC;
+            prev_ch = ';';
+            continue;
+          }
+          restore_mark(&p, m);
+        }
+        if (tok_is_kw(&p, KW_NAMESPACE)) {
+          if (ns_depth >= 8 || p.depth >= 64) return NULL;
+          if (!next_tok(&p) || p.tok.had_nl || is_ts_reserved_type_name(&p)) return NULL;
+          const uint32_t name_s = p.tok.start, name_l = p.tok.end - p.tok.start;
+          if (!next_tok(&p) || !tok_is_punc(&p, '{')) return NULL;
+          if (!lb_flush_to(&p, exp_start)) return NULL;
+          if (!lb_puts(&p, "var ") || !lb_append(&p, source + name_s, name_l) ||
+              !lb_puts(&p, ";\n(function (") || !lb_append(&p, source + name_s, name_l) || !lb_puts(&p, ") {\n")) {
+            return NULL;
+          }
+          p.flushed = p.tok.end;
+          scope_paren[p.depth] = paren_depth; scope_bracket[p.depth] = bracket_depth; scope_ternary[p.depth] = ternary_depth;
+          paren_depth = 0; bracket_depth = 0; ternary_depth = 0;
+          scope_ns_exp_start[p.depth] = 0;
+          scope_ns_exp_len[p.depth] = 0;
+          scope_kind[p.depth++] = SCOPE_NAMESPACE;
+          ns_stack[ns_depth++] = (fs_ns_t){
+            .name_start = name_s, .name_len = name_l,
+            .outer_start = cur_ns->name_start, .outer_len = cur_ns->name_len,
+            .is_export = true,
+          };
+          if (!next_tok(&p)) return NULL;
+          stmt_start = true;
+          prev_kind = TOK_PUNC;
+          prev_ch = '{';
+          continue;
+        }
+        if (tok_is_kw(&p, KW_FUNCTION) || tok_is_kw(&p, KW_ASYNC) || tok_is_kw(&p, KW_CLASS)) {
+          pending_ns_export = true;
+          pending_ns_export_start = exp_start;
+          continue;
+        }
+        if (tok_is_kw(&p, KW_CONST) || tok_is_kw(&p, KW_LET) || tok_is_kw(&p, KW_VAR)) {
+          if (!next_tok(&p) || p.tok.kind != TOK_ID) return NULL;
+          const uint32_t var_s = p.tok.start, var_l = p.tok.end - p.tok.start;
+          fs_ns_t *mut_ns = &ns_stack[ns_depth - 1];
+          if (mut_ns->var_count >= 64) return NULL;
+          mut_ns->var_starts[mut_ns->var_count] = var_s;
+          mut_ns->var_lens[mut_ns->var_count++] = var_l;
+          if (!next_tok(&p)) return NULL;
+          if (tok_is_punc(&p, ':')) {
+            const uint32_t ann_start = p.tok.start;
+            if (!next_tok(&p) || !parse_type(&p, 0)) return NULL;
+            blank_span(&p, ann_start, p.prev_end, false);
+          }
+          if (!tok_is_punc(&p, '=')) return NULL;
+          if (!lb_flush_to(&p, exp_start)) return NULL;
+          if (!lb_append(&p, source + cur_ns->name_start, cur_ns->name_len) ||
+              !lb_puts(&p, ".") || !lb_append(&p, source + var_s, var_l) || !lb_puts(&p, " ")) {
+            return NULL;
+          }
+          p.flushed = p.tok.start;
+          ns_var_decl_depth = (int32_t)p.depth;
+          stmt_start = false;
+          prev_kind = TOK_ID;
+          prev_ch = 'v';
+          continue;
+        }
+        return NULL;
+      }
       if (kw == KW_MODULE) {
         fs_mark_t m = save_mark(&p);
         if (!next_tok(&p)) return NULL;
@@ -1750,7 +2363,80 @@ char *tmt_fast_strip_module(const uint8_t *source, uint32_t size, uint32_t first
         const uint32_t exp_start = p.tok.start;
         if (!next_tok(&p)) return NULL;
         if (tok_is_punc(&p, '=')) return NULL;
-        if (tok_is_kw(&p, KW_ENUM) || tok_is_kw(&p, KW_NAMESPACE)) return NULL;
+        if (tok_is_kw(&p, KW_ENUM)) {
+          if (!p.lb) return NULL;
+          fs_mark_t m = save_mark(&p);
+          if (!next_tok(&p) || is_ts_reserved_type_name(&p)) return NULL;
+          const uint32_t ns_s = p.tok.start, ns_l = p.tok.end - p.tok.start;
+          restore_mark(&p, m);
+          for (uint32_t ti = 0; ti < top_lowered_count; ti++) {
+            if (top_lowered_lens[ti] == ns_l && memcmp(source + top_lowered_starts[ti], source + ns_s, ns_l) == 0) return NULL;
+          }
+          if (top_lowered_count >= 64) return NULL;
+          top_lowered_starts[top_lowered_count] = ns_s;
+          top_lowered_lens[top_lowered_count++] = ns_l;
+          if (!parse_and_lower_enum(&p, exp_start, true, NULL, 0)) return NULL;
+          has_pending_export = false;
+          stmt_start = true;
+          prev_kind = TOK_PUNC;
+          prev_ch = ';';
+          continue;
+        }
+        if (tok_is_kw(&p, KW_CONST)) {
+          fs_mark_t m = save_mark(&p);
+          if (!next_tok(&p)) return NULL;
+          if (tok_is_kw(&p, KW_ENUM)) {
+            if (!p.lb) return NULL;
+            fs_mark_t m2 = save_mark(&p);
+            if (!next_tok(&p) || is_ts_reserved_type_name(&p)) return NULL;
+            const uint32_t ns_s = p.tok.start, ns_l = p.tok.end - p.tok.start;
+            restore_mark(&p, m2);
+            for (uint32_t ti = 0; ti < top_lowered_count; ti++) {
+              if (top_lowered_lens[ti] == ns_l && memcmp(source + top_lowered_starts[ti], source + ns_s, ns_l) == 0) return NULL;
+            }
+            if (top_lowered_count >= 64) return NULL;
+            top_lowered_starts[top_lowered_count] = ns_s;
+            top_lowered_lens[top_lowered_count++] = ns_l;
+            if (!parse_and_lower_enum(&p, exp_start, true, NULL, 0)) return NULL;
+            has_pending_export = false;
+            stmt_start = true;
+            prev_kind = TOK_PUNC;
+            prev_ch = ';';
+            continue;
+          }
+          restore_mark(&p, m);
+        }
+        if (tok_is_kw(&p, KW_NAMESPACE)) {
+          if (!p.lb || ns_depth >= 8 || p.depth >= 64) return NULL;
+          if (!next_tok(&p) || p.tok.had_nl || is_ts_reserved_type_name(&p)) return NULL;
+          const uint32_t name_s = p.tok.start, name_l = p.tok.end - p.tok.start;
+          if (!next_tok(&p) || !tok_is_punc(&p, '{')) return NULL;
+          for (uint32_t ti = 0; ti < top_lowered_count; ti++) {
+            if (top_lowered_lens[ti] == name_l && memcmp(source + top_lowered_starts[ti], source + name_s, name_l) == 0) return NULL;
+          }
+          if (top_lowered_count >= 64) return NULL;
+          top_lowered_starts[top_lowered_count] = name_s;
+          top_lowered_lens[top_lowered_count++] = name_l;
+          if (!lb_flush_to(&p, exp_start)) return NULL;
+          if (!lb_puts(&p, "export var ") || !lb_append(&p, source + name_s, name_l) ||
+              !lb_puts(&p, ";\n(function (") || !lb_append(&p, source + name_s, name_l) || !lb_puts(&p, ") {\n")) {
+            return NULL;
+          }
+          p.flushed = p.tok.end;
+          p.has_runtime_mod = true;
+          p.has_runtime_stmt = true;
+          scope_paren[p.depth] = paren_depth; scope_bracket[p.depth] = bracket_depth; scope_ternary[p.depth] = ternary_depth;
+          paren_depth = 0; bracket_depth = 0; ternary_depth = 0;
+          scope_ns_exp_start[p.depth] = 0;
+          scope_ns_exp_len[p.depth] = 0;
+          scope_kind[p.depth++] = SCOPE_NAMESPACE;
+          ns_stack[ns_depth++] = (fs_ns_t){ .name_start = name_s, .name_len = name_l, .is_export = false };
+          if (!next_tok(&p)) return NULL;
+          stmt_start = true;
+          prev_kind = TOK_PUNC;
+          prev_ch = '{';
+          continue;
+        }
         if (tok_is_kw(&p, KW_ABSTRACT)) {
           fs_mark_t m = save_mark(&p);
           const uint32_t abs_start = p.tok.start, abs_end = p.tok.end;
@@ -2003,7 +2689,7 @@ char *tmt_fast_strip_module(const uint8_t *source, uint32_t size, uint32_t first
           }
           restore_mark(&p, m);
         } else if (tok_is_punc(&p, '{')) {
-          if (!parse_named_specifiers(&p)) return NULL;
+          if (!parse_named_specifiers_ex(&p, (!esm && !p.lowering) ? imp_specs : NULL, (!esm && !p.lowering) ? &imp_spec_count : NULL, 2048)) return NULL;
           p.has_runtime_mod = true;
           p.has_runtime_stmt = true;
           stmt_start = false;
@@ -2030,12 +2716,44 @@ char *tmt_fast_strip_module(const uint8_t *source, uint32_t size, uint32_t first
       }
       if (kw == KW_CONST || kw == KW_LET || kw == KW_VAR) {
         const bool is_const = (kw == KW_CONST);
+        const uint32_t decl_s = p.tok.start;
         p.has_runtime_stmt = true;
         has_pending_export = false;
         if (!next_tok(&p)) return NULL;
-        if (is_const && tok_is_kw(&p, KW_ENUM)) return NULL;
+        if (is_const && tok_is_kw(&p, KW_ENUM)) {
+          if (!p.lb) return NULL;
+          fs_mark_t m = save_mark(&p);
+          if (!next_tok(&p) || is_ts_reserved_type_name(&p)) return NULL;
+          const uint32_t ns_s = p.tok.start, ns_l = p.tok.end - p.tok.start;
+          restore_mark(&p, m);
+          if (p.depth == 0) {
+            for (uint32_t ti = 0; ti < top_lowered_count; ti++) {
+              if (top_lowered_lens[ti] == ns_l && memcmp(source + top_lowered_starts[ti], source + ns_s, ns_l) == 0) return NULL;
+            }
+            if (top_lowered_count >= 64) return NULL;
+            top_lowered_starts[top_lowered_count] = ns_s;
+            top_lowered_lens[top_lowered_count++] = ns_l;
+          }
+          if (!parse_and_lower_enum(&p, decl_s, false, NULL, 0)) return NULL;
+          stmt_start = true;
+          prev_kind = TOK_PUNC;
+          prev_ch = ';';
+          continue;
+        }
         if (p.tok.kind == TOK_ID) {
           for (;;) {
+            if (!esm && p.depth == 0) {
+              if (++top_decl_count > 2048) return NULL;
+              if (imp_spec_count > 0) {
+                const uint32_t id_l = p.tok.end - p.tok.start;
+                for (uint32_t ii = 0; ii < imp_spec_count; ii++) {
+                  if (!imp_specs[ii].elided && imp_specs[ii].name_len == id_l &&
+                      memcmp(source + imp_specs[ii].name_start, source + p.tok.start, id_l) == 0) {
+                    blank_imp_spec(&p, &imp_specs[ii]);
+                  }
+                }
+              }
+            }
             if (!next_tok(&p)) return NULL;
             if (tok_is_punc(&p, '!') || tok_is_punc(&p, ':')) {
               const uint32_t ann_start = p.tok.start;
@@ -2067,15 +2785,32 @@ char *tmt_fast_strip_module(const uint8_t *source, uint32_t size, uint32_t first
             blank_span(&p, ann_start, p.prev_end, false);
           }
         }
-        stmt_start = false;
+        stmt_start = (p.tok.had_nl && kw_asi_stmt_start[p.tok.kw]);
         prev_kind = TOK_ID;
         prev_ch = 'v';
         continue;
       }
       if (p.tok.kw == KW_CLASS) {
         has_pending_export = false;
+        const uint32_t cls_start = p.tok.start;
+        uint32_t cls_name_s = 0, cls_name_l = 0;
+        if (pending_ns_export) {
+          fs_mark_t m = save_mark(&p);
+          if (next_tok(&p) && p.tok.kind == TOK_ID && !tok_is_kw(&p, KW_EXTENDS) && !tok_is_kw(&p, KW_IMPLEMENTS)) {
+            cls_name_s = p.tok.start;
+            cls_name_l = p.tok.end - p.tok.start;
+          }
+          restore_mark(&p, m);
+          if (!cls_name_l || !lb_flush_to(&p, pending_ns_export_start)) return NULL;
+          p.flushed = cls_start;
+        }
         if (!parse_class_header(&p) || p.depth >= 64) return NULL;
         p.has_runtime_stmt = true;
+        scope_paren[p.depth] = paren_depth; scope_bracket[p.depth] = bracket_depth; scope_ternary[p.depth] = ternary_depth;
+        paren_depth = 0; bracket_depth = 0; ternary_depth = 0;
+        scope_ns_exp_start[p.depth] = pending_ns_export ? cls_name_s : 0;
+        scope_ns_exp_len[p.depth] = pending_ns_export ? cls_name_l : 0;
+        pending_ns_export = false;
         scope_kind[p.depth++] = SCOPE_CLASS;
         prev_kind = TOK_PUNC;
         prev_ch = '{';
@@ -2085,11 +2820,14 @@ char *tmt_fast_strip_module(const uint8_t *source, uint32_t size, uint32_t first
       }
       if (kw == KW_FUNCTION || kw == KW_ASYNC) {
         fs_mark_t m = save_mark(&p);
-        const uint32_t fn_start = has_pending_export ? pending_export_start : p.tok.start;
+        const uint32_t fn_kw_start = p.tok.start;
+        const uint32_t fn_start = has_pending_export ? pending_export_start :
+          pending_ns_export ? pending_ns_export_start : p.tok.start;
         if (kw == KW_ASYNC) {
           if (!next_tok(&p)) return NULL;
           if (p.tok.had_nl || !tok_is_kw(&p, KW_FUNCTION)) {
             restore_mark(&p, m);
+            if (pending_ns_export) return NULL;
             if (has_pending_export) {
               p.has_runtime_mod = true;
               p.has_runtime_stmt = true;
@@ -2100,7 +2838,20 @@ char *tmt_fast_strip_module(const uint8_t *source, uint32_t size, uint32_t first
         }
         if (!next_tok(&p)) return NULL;
         if (tok_is_punc(&p, '*') && !next_tok(&p)) return NULL;
-        if (p.tok.kind == TOK_ID && !next_tok(&p)) return NULL;
+        uint32_t fn_name_s = 0, fn_name_l = 0;
+        if (p.tok.kind == TOK_ID) {
+          fn_name_s = p.tok.start;
+          fn_name_l = p.tok.end - p.tok.start;
+          if (!esm && p.depth == 0 && imp_spec_count > 0) {
+            for (uint32_t ii = 0; ii < imp_spec_count; ii++) {
+              if (!imp_specs[ii].elided && imp_specs[ii].name_len == fn_name_l &&
+                  memcmp(source + imp_specs[ii].name_start, source + fn_name_s, fn_name_l) == 0) {
+                blank_imp_spec(&p, &imp_specs[ii]);
+              }
+            }
+          }
+          if (!next_tok(&p)) return NULL;
+        }
         if (tok_is_punc(&p, '<')) {
           const uint32_t tp_start = p.tok.start;
           if (!parse_type_params(&p, 0)) return NULL;
@@ -2119,17 +2870,27 @@ char *tmt_fast_strip_module(const uint8_t *source, uint32_t size, uint32_t first
           blank_span(&p, fn_start, ov_end, need_sep);
           p.erased_any_stmt = true;
           has_pending_export = false;
+          pending_ns_export = false;
           stmt_start = true;
           prev_kind = TOK_PUNC;
           prev_ch = ';';
           continue;
         }
         if (p.depth >= 64) return NULL;
+        if (pending_ns_export) {
+          if (!fn_name_l || !lb_flush_to(&p, pending_ns_export_start)) return NULL;
+          p.flushed = fn_kw_start;
+        }
         if (has_pending_export) {
           p.has_runtime_mod = true;
           has_pending_export = false;
         }
         p.has_runtime_stmt = true;
+        scope_paren[p.depth] = paren_depth; scope_bracket[p.depth] = bracket_depth; scope_ternary[p.depth] = ternary_depth;
+        paren_depth = 0; bracket_depth = 0; ternary_depth = 0;
+        scope_ns_exp_start[p.depth] = pending_ns_export ? fn_name_s : 0;
+        scope_ns_exp_len[p.depth] = pending_ns_export ? fn_name_l : 0;
+        pending_ns_export = false;
         scope_kind[p.depth++] = SCOPE_BLOCK;
         if (!next_tok(&p)) return NULL;
         stmt_start = true;
@@ -2145,7 +2906,22 @@ char *tmt_fast_strip_module(const uint8_t *source, uint32_t size, uint32_t first
     }
 
 normal_tok:
+    /* Inside a lowered namespace with `export const/let/var`, decline if any bare identifier reads an exported var from any enclosing namespace */
+    if (ns_depth > 0 && p.tok.kind == TOK_ID && !(prev_kind == TOK_PUNC && prev_ch == '.')) {
+      const uint32_t id_len = p.tok.end - p.tok.start;
+      for (uint32_t ni = 0; ni < ns_depth; ni++) {
+        const fs_ns_t *enc_ns = &ns_stack[ni];
+        for (uint32_t vi = 0; vi < enc_ns->var_count; vi++) {
+          if (enc_ns->var_lens[vi] == id_len && memcmp(source + enc_ns->var_starts[vi], source + p.tok.start, id_len) == 0) {
+            return NULL;
+          }
+        }
+      }
+    }
     if (p.tok.kw != KW_NONE) {
+      if ((p.tok.kw == KW_CASE || p.tok.kw == KW_DEFAULT) && paren_depth == 0 && bracket_depth == 0) {
+        in_case = true;
+      }
       if (p.tok.kw == KW_NEW) {
         fs_mark_t m = save_mark(&p);
         if (!next_tok(&p)) return NULL;
@@ -2161,44 +2937,141 @@ normal_tok:
         } else if (!parse_type(&p, 0)) {
           return NULL;
         }
-        if (tok_is_punc(&p, '=') || p.tok.kind == TOK_OP2 ||
-            tok_is_punc(&p, '(') || tok_is_punc(&p, '[') || tok_is_punc(&p, '.') ||
-            p.tok.kind == TOK_TPL_FULL || p.tok.kind == TOK_TPL_HEAD) return NULL;
+        /* Reject operators that bind tighter than `as`/`satisfies` or assign to it;
+         * allow lower-precedence `||`, `&&`, `??`, `==`, `===`, `!=`, `!==`, `<=`, `>=`. */
+        bool bad_follow = tok_is_punc(&p, '=') ||
+          tok_is_punc(&p, '(') || tok_is_punc(&p, '[') || tok_is_punc(&p, '.') ||
+          tok_is_punc(&p, '+') || tok_is_punc(&p, '-') || tok_is_punc(&p, '*') ||
+          tok_is_punc(&p, '/') || tok_is_punc(&p, '%') || tok_is_punc(&p, '<') ||
+          tok_is_punc(&p, '>') ||
+          p.tok.kind == TOK_TPL_FULL || p.tok.kind == TOK_TPL_HEAD;
+        if (!bad_follow && p.tok.kind == TOK_OP2) {
+          const uint32_t oplen = p.tok.end - p.tok.start;
+          const uint8_t c1 = source[p.tok.start], c2 = source[p.tok.start + 1];
+          const bool safe_op2 =
+            (oplen == 2 && ((c1 == '|' && c2 == '|') || (c1 == '&' && c2 == '&') ||
+                            (c1 == '?' && c2 == '?') || (c1 == '=' && c2 == '=') ||
+                            (c1 == '!' && c2 == '=') || (c1 == '<' && c2 == '=') ||
+                            (c1 == '>' && c2 == '='))) ||
+            (oplen == 3 && ((c1 == '=' && c2 == '=' && source[p.tok.start + 2] == '=') ||
+                            (c1 == '!' && c2 == '=' && source[p.tok.start + 2] == '=')));
+          if (!safe_op2) bad_follow = true;
+        }
+        if (bad_follow) return NULL;
         blank_span(&p, as_start, p.prev_end, false);
         stmt_start = false;
         continue;
-      } else if (p.tok.kw == KW_CLASS) {
-        if (!parse_class_header(&p) || p.depth >= 64) return NULL;
-        scope_kind[p.depth++] = SCOPE_CLASS;
-        prev_kind = TOK_PUNC;
-        prev_ch = '{';
-        prev_can_precede_arrow = true;
+      } else if (p.tok.kw == KW_CLASS && !(prev_kind == TOK_PUNC && prev_ch == '.')) {
+        fs_mark_t m = save_mark(&p);
         if (!next_tok(&p)) return NULL;
-        stmt_start = true;
-        continue;
-      } else if (p.tok.kw == KW_FUNCTION) {
-        if (!next_tok(&p)) return NULL;
-        if (tok_is_punc(&p, '*') && !next_tok(&p)) return NULL;
-        if (p.tok.kind == TOK_ID && !next_tok(&p)) return NULL;
-        if (tok_is_punc(&p, '<')) {
-          const uint32_t tp_start = p.tok.start;
-          if (!parse_type_params(&p, 0)) return NULL;
-          blank_span(&p, tp_start, p.prev_end, false);
+        const bool is_prop_or_key = tok_is_punc(&p, ':') || tok_is_punc(&p, ',') || tok_is_punc(&p, '}') ||
+          tok_is_punc(&p, ')') || tok_is_punc(&p, ']') || tok_is_punc(&p, ';') || tok_is_punc(&p, '.');
+        restore_mark(&p, m);
+        if (!is_prop_or_key) {
+          if (!parse_class_header(&p) || p.depth >= 64) return NULL;
+          scope_paren[p.depth] = paren_depth; scope_bracket[p.depth] = bracket_depth; scope_ternary[p.depth] = ternary_depth;
+          paren_depth = 0; bracket_depth = 0; ternary_depth = 0;
+          scope_ns_exp_len[p.depth] = 0;
+          scope_kind[p.depth++] = SCOPE_CLASS;
+          prev_kind = TOK_PUNC;
+          prev_ch = '{';
+          prev_can_precede_arrow = true;
+          if (!next_tok(&p)) return NULL;
+          stmt_start = true;
+          continue;
         }
-        if (!tok_is_punc(&p, '(') || !parse_runtime_params(&p, false)) return NULL;
-        if (tok_is_punc(&p, ':')) {
-          const uint32_t rt_start = p.tok.start;
-          if (!next_tok(&p) || !parse_return_type(&p, 0)) return NULL;
-          blank_span(&p, rt_start, p.prev_end, false);
-        }
-        if (!tok_is_punc(&p, '{') || p.depth >= 64) return NULL;
-        scope_kind[p.depth++] = SCOPE_BLOCK;
+      } else if (p.tok.kw == KW_FUNCTION && !(prev_kind == TOK_PUNC && prev_ch == '.')) {
+        fs_mark_t m = save_mark(&p);
         if (!next_tok(&p)) return NULL;
-        stmt_start = true;
-        prev_kind = TOK_PUNC;
-        prev_ch = '{';
-        continue;
+        const bool is_prop_or_key = tok_is_punc(&p, ':') || tok_is_punc(&p, ',') || tok_is_punc(&p, '}') ||
+          tok_is_punc(&p, ')') || tok_is_punc(&p, ']') || tok_is_punc(&p, ';') || tok_is_punc(&p, '.');
+        restore_mark(&p, m);
+        if (!is_prop_or_key) {
+          if (!next_tok(&p)) return NULL;
+          if (tok_is_punc(&p, '*') && !next_tok(&p)) return NULL;
+          if (p.tok.kind == TOK_ID && !next_tok(&p)) return NULL;
+          if (tok_is_punc(&p, '<')) {
+            const uint32_t tp_start = p.tok.start;
+            if (!parse_type_params(&p, 0)) return NULL;
+            blank_span(&p, tp_start, p.prev_end, false);
+          }
+          if (!tok_is_punc(&p, '(') || !parse_runtime_params(&p, false)) return NULL;
+          if (tok_is_punc(&p, ':')) {
+            const uint32_t rt_start = p.tok.start;
+            if (!next_tok(&p) || !parse_return_type(&p, 0)) return NULL;
+            blank_span(&p, rt_start, p.prev_end, false);
+          }
+          if (!tok_is_punc(&p, '{') || p.depth >= 64) return NULL;
+          scope_paren[p.depth] = paren_depth; scope_bracket[p.depth] = bracket_depth; scope_ternary[p.depth] = ternary_depth;
+          paren_depth = 0; bracket_depth = 0; ternary_depth = 0;
+          scope_ns_exp_len[p.depth] = 0;
+          scope_kind[p.depth++] = SCOPE_BLOCK;
+          if (!next_tok(&p)) return NULL;
+          stmt_start = true;
+          prev_kind = TOK_PUNC;
+          prev_ch = '{';
+          continue;
+        }
       }
+    }
+
+    /* Object literal typed method: `{ foo<T>(x: T): R { ... } }` */
+    if (paren_depth == 0 && bracket_depth == 0 &&
+        p.tok.kind == TOK_ID && p.depth > 0 && scope_kind[p.depth - 1] == SCOPE_BLOCK &&
+        ((prev_kind == TOK_PUNC && (prev_ch == '{' || prev_ch == ',' || prev_ch == '*')) ||
+         prev_kw == KW_ASYNC || prev_kw == KW_GET || prev_kw == KW_SET) &&
+        p.tok.kw != KW_IF && p.tok.kw != KW_WHILE && p.tok.kw != KW_FOR && p.tok.kw != KW_SWITCH &&
+        p.tok.kw != KW_WITH && p.tok.kw != KW_CATCH && p.tok.kw != KW_FUNCTION) {
+      fs_mark_t m_id = save_mark(&p);
+      if (next_tok(&p) && (tok_is_punc(&p, '(') || tok_is_punc(&p, '<'))) {
+        /* Quick speculative check: does `[<T>](params)[: R] {` follow? */
+        fs_mark_t m_sig = save_mark(&p);
+        bool ok_sig = true;
+        if (tok_is_punc(&p, '<') && !parse_type_params(&p, 0)) ok_sig = false;
+        if (ok_sig && tok_is_punc(&p, '(')) {
+          uint32_t d = 1, steps = 0;
+          if (!next_tok(&p)) ok_sig = false;
+          while (ok_sig && d > 0 && p.tok.kind != TOK_EOF) {
+            if (++steps > 128 || d > 8 || p.tok.kind == TOK_TPL_HEAD) { ok_sig = false; break; }
+            if (tok_is_punc(&p, '(')) d++;
+            else if (tok_is_punc(&p, ')')) d--;
+            else if (d == 1 && tok_is_punc(&p, ';')) { ok_sig = false; break; }
+            if (d > 0 && !next_tok(&p)) { ok_sig = false; break; }
+          }
+          if (ok_sig && d == 0 && next_tok(&p)) {
+            if (tok_is_punc(&p, ':')) {
+              if (!next_tok(&p) || !parse_return_type(&p, 0)) ok_sig = false;
+            }
+            if (ok_sig && tok_is_punc(&p, '{')) {
+              /* Confirmed object literal method! Re-parse and erase TS annotations. */
+              restore_mark(&p, m_sig);
+              if (tok_is_punc(&p, '<')) {
+                const uint32_t tp_s = p.tok.start;
+                if (!parse_type_params(&p, 0)) return NULL;
+                blank_span(&p, tp_s, p.prev_end, false);
+              }
+              if (!parse_runtime_params(&p, false)) return NULL;
+              if (tok_is_punc(&p, ':')) {
+                const uint32_t rt_s = p.tok.start;
+                if (!next_tok(&p) || !parse_return_type(&p, 0)) return NULL;
+                blank_span(&p, rt_s, p.prev_end, false);
+              }
+              if (!tok_is_punc(&p, '{') || p.depth >= 64) return NULL;
+              scope_paren[p.depth] = paren_depth; scope_bracket[p.depth] = bracket_depth; scope_ternary[p.depth] = ternary_depth;
+              paren_depth = 0; bracket_depth = 0; ternary_depth = 0;
+              scope_ns_exp_len[p.depth] = 0;
+              scope_kind[p.depth++] = SCOPE_BLOCK;
+              if (!next_tok(&p)) return NULL;
+              stmt_start = true;
+              prev_kind = TOK_PUNC;
+              prev_ch = '{';
+              prev_kw = KW_NONE;
+              continue;
+            }
+          }
+        }
+      }
+      restore_mark(&p, m_id);
     }
 
     /* Postfix non-null assertion `x!` */
@@ -2251,9 +3124,16 @@ normal_tok:
         fs_mark_t m = save_mark(&p);
         if (parse_type_args(&p, 0) &&
             (tok_is_punc(&p, '(') || p.tok.kind == TOK_TPL_FULL || p.tok.kind == TOK_TPL_HEAD)) {
-          /* Decline multiline `f<T>\n(1)` or comma-ambiguous `f(a < b, c > (d))` to Pulse */
+          /* Decline multiline `f<T>\n(1)` to Pulse */
           if (p.tok.had_nl) return NULL;
-          if (paren_depth == 0 || !memchr(source + m.tok.start, ',', p.prev_end - m.tok.start)) {
+          bool unambiguous = (paren_depth == 0 || !memchr(source + m.tok.start, ',', p.prev_end - m.tok.start));
+          if (!unambiguous && tok_is_punc(&p, '(')) {
+            /* `new Map<K, V>()` / `f<K, V>()` with empty `()` can never be `f(a < b, c > (d))` */
+            fs_mark_t m_empty = save_mark(&p);
+            if (next_tok(&p) && tok_is_punc(&p, ')')) unambiguous = true;
+            restore_mark(&p, m_empty);
+          }
+          if (unambiguous) {
             blank_span(&p, m.tok.start, p.prev_end, false);
             continue;
           }
@@ -2278,7 +3158,7 @@ check_arrow_paren:
         plausible_params = false;
       }
       while (plausible_params && d > 0 && p.tok.kind != TOK_EOF) {
-        if (++lookahead_steps > 128 || d > 8) { plausible_params = false; break; }
+        if (++lookahead_steps > 128 || d > 8 || p.tok.kind == TOK_TPL_HEAD) { plausible_params = false; break; }
         if (tok_is_punc(&p, '(')) d++;
         else if (tok_is_punc(&p, ')')) d--;
         else if (d == 1) {
@@ -2339,12 +3219,43 @@ check_arrow_paren:
       switch (p.tok.ch) {
         case '{':
           if (p.depth >= 64) return NULL;
+          scope_ns_exp_start[p.depth] = 0;
+          scope_paren[p.depth] = paren_depth; scope_bracket[p.depth] = bracket_depth; scope_ternary[p.depth] = ternary_depth;
+          paren_depth = 0; bracket_depth = 0; ternary_depth = 0;
+          scope_ns_exp_len[p.depth] = 0;
           scope_kind[p.depth++] = SCOPE_BLOCK;
           stmt_start = true;
           break;
         case '}':
-          if (p.depth == 0) return NULL;
+          if (p.depth == 0 || paren_depth != 0 || bracket_depth != 0) return NULL;
           p.depth--;
+          paren_depth = scope_paren[p.depth];
+          bracket_depth = scope_bracket[p.depth];
+          ternary_depth = scope_ternary[p.depth];
+          if (scope_kind[p.depth] == SCOPE_NAMESPACE) {
+            if (ns_depth == 0) return NULL;
+            const fs_ns_t closed = ns_stack[--ns_depth];
+            if (!lb_flush_to(&p, p.tok.start)) return NULL;
+            if (!lb_puts(&p, "\n})(")) return NULL;
+            if (closed.is_export) {
+              if (!lb_append(&p, source + closed.name_start, closed.name_len) || !lb_puts(&p, " = ") ||
+                  !lb_append(&p, source + closed.outer_start, closed.outer_len) || !lb_puts(&p, ".") ||
+                  !lb_append(&p, source + closed.name_start, closed.name_len) || !lb_puts(&p, " || (") ||
+                  !lb_append(&p, source + closed.outer_start, closed.outer_len) || !lb_puts(&p, ".") ||
+                  !lb_append(&p, source + closed.name_start, closed.name_len) || !lb_puts(&p, " = {}));")) return NULL;
+            } else {
+              if (!lb_append(&p, source + closed.name_start, closed.name_len) || !lb_puts(&p, " || (") ||
+                  !lb_append(&p, source + closed.name_start, closed.name_len) || !lb_puts(&p, " = {}));")) return NULL;
+            }
+            p.flushed = p.tok.end;
+          } else if (scope_ns_exp_len[p.depth] > 0 && ns_depth > 0) {
+            const fs_ns_t *cur_ns = &ns_stack[ns_depth - 1];
+            if (!lb_flush_to(&p, p.tok.end)) return NULL;
+            if (!lb_puts(&p, "\n") || !lb_append(&p, source + cur_ns->name_start, cur_ns->name_len) ||
+                !lb_puts(&p, ".") || !lb_append(&p, source + scope_ns_exp_start[p.depth], scope_ns_exp_len[p.depth]) ||
+                !lb_puts(&p, " = ") || !lb_append(&p, source + scope_ns_exp_start[p.depth], scope_ns_exp_len[p.depth]) ||
+                !lb_puts(&p, ";")) return NULL;
+          }
           stmt_start = (paren_depth == 0 && bracket_depth == 0 && ternary_depth == 0);
           break;
         case '(':
@@ -2359,17 +3270,20 @@ check_arrow_paren:
           if (paren_depth == 0) return NULL;
           paren_depth--;
           if (paren_depth < 64 && paren_stmt_hdr[paren_depth]) {
-            /* After `if (...)` / `while (...)` / `for (...)` / `with (...)`, `/` begins a regex literal */
+            /* After `if (...)` / `while (...)` / `for (...)` / `with (...)`, `/` begins a regex literal,
+             * but do NOT set `stmt_start = true` so `if (true) type T = string;` cannot be erased. */
             p.allow_regex = true;
-            stmt_start = (paren_depth == 0 && bracket_depth == 0 && ternary_depth == 0);
-          } else {
-            stmt_start = false;
           }
+          stmt_start = false;
           break;
         case '[': bracket_depth++; stmt_start = false; break;
         case ']': if (bracket_depth == 0) return NULL; bracket_depth--; stmt_start = false; break;
         case '?': ternary_depth++; stmt_start = false; break;
-        case ':': if (ternary_depth > 0) ternary_depth--; stmt_start = false; break;
+        case ':':
+          if (ternary_depth > 0) { ternary_depth--; stmt_start = false; }
+          else if (in_case && paren_depth == 0 && bracket_depth == 0) { in_case = false; stmt_start = true; }
+          else { stmt_start = false; }
+          break;
         case ';': stmt_start = (paren_depth == 0 && bracket_depth == 0 && ternary_depth == 0); break;
         default: stmt_start = false; break;
       }
@@ -2396,7 +3310,8 @@ check_arrow_paren:
 next_iter:;
   }
 
-  if (p.depth != 0 || paren_depth != 0 || bracket_depth != 0 || p.tpl_depth != 0 || has_pending_export) return NULL;
+  if (p.failed || p.depth != 0 || paren_depth != 0 || bracket_depth != 0 || p.tpl_depth != 0 ||
+      has_pending_export || pending_ns_export || ns_depth != 0) return NULL;
   if (!esm && !p.has_runtime_mod) return NULL;
   if (!p.has_runtime_stmt) {
     /* Type-only `.mts` module: emit `export {};\n` directly when comment-free;
@@ -2408,6 +3323,16 @@ next_iter:;
     *out_len = sizeof(marker) - 1;
     *edited = true;
     return p.out;
+  }
+
+  if (p.lowering) {
+    if (!lb_flush_to(&p, size)) return NULL;
+    if (esm && !p.has_runtime_mod) {
+      if (!lb_puts(&p, "\nexport {};\n")) return NULL;
+    }
+    *out_len = p.lb->len;
+    *edited = true;
+    return p.lb->data;
   }
 
   size_t len = size;
@@ -2422,4 +3347,10 @@ next_iter:;
   *out_len = len;
   *edited = p.edited;
   return p.edited ? p.out : (char *)source;
+}
+
+char *tmt_fast_strip_module(const uint8_t *source, uint32_t size, uint32_t first_at, bool esm,
+  char *out_buf, size_t *out_len, bool *edited)
+{
+  return tmt_fast_strip_module_ex(source, size, first_at, esm, out_buf, out_len, edited, NULL);
 }

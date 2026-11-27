@@ -52,6 +52,8 @@ try {
     const fsLto = spawnSync(compiler, ['-flto', ...fastStripArgs.slice(0, -1), fastStripLto], { cwd: root, encoding: 'utf8' });
     const fsObjForJs = fsLto.status === 0 ? fastStripLto : fastStripObj;
     const jsPgoArgs = [];
+    const jsIncFlags = ['-I', 'native/compiler', '-I', 'native/runtime',
+      ...(values['scalar-scans'] ? ['-DTMT_SCALAR_SCANS'] : [])];
     if (usePgo && !values['audit-v8']) {
       const jsProfRaw = resolve(scratch, 'js.profraw');
       const jsProfData = resolve(scratch, 'js.profdata');
@@ -60,19 +62,36 @@ try {
       const fsInst = spawnSync(compiler, [...fastStripArgs.slice(0, -1), fsInstObj, '-fprofile-instr-generate=' + jsProfRaw], { cwd: root, encoding: 'utf8' });
       if (fsInst.status === 0) {
         const jsInstBuilt = spawnSync(cpp, [...validatorSources, ...shared, '-DTMT_JAVASCRIPT_ADDON',
-          '-I', 'native/compiler', '-fprofile-instr-generate=' + jsProfRaw, fsInstObj, '-o', jsInstOut], { cwd: root, encoding: 'utf8' });
+          ...jsIncFlags, '-fprofile-instr-generate=' + jsProfRaw, fsInstObj, '-o', jsInstOut], { cwd: root, encoding: 'utf8' });
         if (jsInstBuilt.status === 0) {
           const jsTrain = `
             const fs = require('fs');
             const addon = { exports: {} };
             process.dlopen(addon, ${JSON.stringify(jsInstOut)});
             const fast = addon.exports.emitFastModule;
+            const fastMap = addon.exports.emitFastModuleMapped;
+            const fastTs = addon.exports.emitFastTs;
             if (fast && fs.existsSync('build/fable/corpora/as-mts.json')) {
               const rows = JSON.parse(fs.readFileSync('build/fable/corpora/as-mts.json', 'utf8'));
               for (let i = 0; i < rows.length; i++) {
-                const s = Buffer.from(rows[i].source, 'base64').toString('utf8');
+                const b = Buffer.from(rows[i].source, 'base64');
+                const s = b.toString('utf8');
                 if (typeof fast(s) === 'string') {
-                  for (let k = 0; k < 4; k++) fast(s);
+                  for (let k = 0; k < 3; k++) { fast(s); fast(b); if (fastMap) fastMap(s); }
+                }
+              }
+            }
+            if (fastTs) {
+              for (const f of [
+                'build/compiler-upstream/official-oxc-transform-renderer.ts.json',
+                'build/compiler-upstream/official-oxc-transform-parser.ts.json',
+                'build/compiler-upstream/official-yuku-checker.ts.json',
+              ]) {
+                if (!fs.existsSync(f)) continue;
+                const rows = JSON.parse(fs.readFileSync(f, 'utf8'));
+                for (const r of rows) {
+                  const b = Buffer.from(r.source, 'base64');
+                  for (let k = 0; k < 3; k++) fastTs(b);
                 }
               }
             }
@@ -93,7 +112,7 @@ try {
     }
     const finalFsObj = jsPgoArgs.length ? resolve(scratch, 'fast-strip-pgo.o') : fsObjForJs;
     const jsArgs = [...validatorSources, ...shared, '-DTMT_JAVASCRIPT_ADDON',
-      '-I', 'native/compiler', ...jsPgoArgs, finalFsObj, '-o', resolve(scratch, javascript)];
+      ...jsIncFlags, ...jsPgoArgs, finalFsObj, '-o', resolve(scratch, javascript)];
     const builtLto = spawnSync(cpp, ['-flto', ...jsArgs], { cwd: root, encoding: 'utf8' });
     const built = builtLto.status === 0 ? builtLto : spawnSync(cpp, jsArgs, { cwd: root, encoding: 'utf8' });
     if (built.status !== 0) throw new Error(built.stderr || built.error?.message);
