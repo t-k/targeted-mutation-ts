@@ -4422,3 +4422,67 @@ test('R67/R68 fast-strip enum/namespace lowering, .ts routing, MAP runs, and sou
   const firstLineFieldCounts = rTailMap.sourceMap.mappings.split(';')[0].split(',').filter(Boolean).map(decodeSegFields);
   assert.equal(firstLineFieldCounts[firstLineFieldCounts.length - 1], 1, 'trailing generated enum must end line 0 with a 1-field unmapped segment');
 });
+
+test('R69 fast-strip TSX automatic lowering, .mts BOM source maps, catch annotations, and declare global', () => {
+  // 1. TSX automatic lowering via emitFastTsx (>= 2048 bytes): intrinsic/component tags, fragments, spread, key, nested children, multiline text
+  const pad = '// ' + 'x'.repeat(2100) + '\n';
+  const tsxSrc = pad + [
+    'import type { ReactNode } from "react";',
+    'interface Props { title: string; items: { id: string; label: string }[]; extra: Record<string, unknown>; }',
+    'export const View = ({ title, items, extra }: Props): ReactNode => (',
+    '  <>',
+    '    <div className="box" data-id="1" disabled {...extra}>',
+    '      <span>',
+    '        Hello',
+    '        World',
+    '      </span>',
+    '      {items.map((it: { id: string; label: string }) => <li key={it.id}>{it.label}</li>)}',
+    '    </div>',
+    '  </>',
+    ');',
+    'export function tryCatch(fn: () => void) {',
+    '  try { fn(); } catch (err: unknown) { return err; }',
+    '}',
+  ].join('\n') + '\n';
+  const rTsx = compile(tsxSrc, { file: 'r69-view.tsx' });
+  assert.equal(rTsx.backend, 'pulse');
+  assert.ok(rTsx.code.includes('from "react/jsx-runtime"'));
+  assert.ok(rTsx.code.includes('_Fragment') && rTsx.code.includes('_jsx') && rTsx.code.includes('_jsxs'));
+  assert.ok(rTsx.code.includes('"data-id": "1"') && rTsx.code.includes('disabled: true'));
+  assert.ok(rTsx.code.includes('"Hello World"'));
+  assert.ok(!rTsx.code.includes(': unknown'));
+
+  // 2. Key after spread must fall back cleanly (never drop createElement semantics)
+  const tsxKeyAfterSpread = pad + 'export const K = (p: any) => <div {...p} key="k" />;\n';
+  const rKeySpread = compile(tsxKeyAfterSpread, { file: 'r69-key.tsx' });
+  assert.ok(rKeySpread.code !== null && rKeySpread.code.includes('createElement'));
+
+  // 3. UTF-8 BOM on .mts with sourceMap: BOM stripped from code, kept in sourcesContent, line 0 starts at col 1
+  const bomMts = '\ufeffexport const x: number = 1;\n';
+  const rBom = compile(bomMts, { file: 'r69-bom.mts', sourceMap: true });
+  assert.equal(rBom.backend, 'pulse');
+  assert.ok(!rBom.code.startsWith('\ufeff'));
+  assert.equal(rBom.sourceMap.sourcesContent[0].charCodeAt(0), 0xFEFF);
+  assert.ok(rBom.sourceMap.mappings.startsWith('AAAC'));
+
+  // 4. Bodyless `declare module "x";`, multiline `declare module "x"\n{ ... }`, and strict `declare global { interface ... }`
+  const rDecl = compile('declare module "pkg";\ndeclare global { interface Window { __x: number; } }\nexport const ok = 1;\n', { file: 'r69-decl.mts' });
+  assert.equal(rDecl.backend, 'pulse');
+  assert.ok(!rDecl.code.includes('declare') && rDecl.code.includes('export const ok = 1'));
+  const rDeclBlock = compile('declare module "pkg"\n{ export const hidden: number; }\nexport const ok = 1;\n', { file: 'r69-decl-block.mts' });
+  assert.ok(rDeclBlock.code !== null && !rDeclBlock.code.includes('hidden'));
+
+  // 5. Codex R69 review regressions: JSX raw backslash attrs, invalid quote escape, uppercase hyphenated tags, catch (e: string)
+  const rJsxEdge = compile(pad + 'export const E = () => <Foo-bar a="a\\nb" b=\'x"y\' />;\n', { file: 'r69-jsx-edge.tsx' });
+  assert.equal(rJsxEdge.backend, 'pulse');
+  assert.ok(rJsxEdge.code.includes('"Foo-bar"'), 'uppercase hyphenated JSX tag must be intrinsic string');
+  assert.ok(rJsxEdge.code.includes('"a\\\\nb"'), 'JSX attribute backslash must be escaped as literal backslash');
+  const rBadJsxStr = compile(pad + 'export const Bad = () => <div a="x\\"y" />;\n', { file: 'r69-bad-jsx.tsx' });
+  assert.equal(rBadJsxStr.code, null, 'JSX attribute string must not treat backslash-quote as escape');
+  const jsAddon = { exports: {} };
+  process.dlopen(jsAddon, new URL('../build/compiler-js.node', import.meta.url).pathname);
+  assert.equal(jsAddon.exports.emitFastTsx(pad + 'export function f() { try {} catch (e: string) {} }\n'), undefined,
+    'emitFastTsx must decline catch (e: string)');
+  assert.equal(jsAddon.exports.emitFastModule('export function f() { try {} catch (e: string) {} }\n'), undefined,
+    'emitFastModule must decline catch (e: string)');
+});

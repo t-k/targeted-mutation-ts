@@ -38,4 +38,7 @@ char *tmt_fast_strip_module(const uint8_t *source, uint32_t size, uint32_t first
 char *tmt_fast_strip_module_ex(const uint8_t *source, uint32_t size, uint32_t first_at, bool esm,
   char *out_buf, size_t *out_len, bool *edited, fs_lower_buf_t *lower_buf);
 
+char *tmt_fast_strip_tsx(const uint8_t *source, uint32_t size, uint32_t first_at,
+  char *out_buf, size_t *out_len, bool *edited, fs_lower_buf_t *lower_buf);
+
 #endif

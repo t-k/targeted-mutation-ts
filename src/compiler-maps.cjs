@@ -10,8 +10,7 @@ function mappedTypeScript(input, file, flags, addon) {
   const name = slash < 0 ? file : file.slice(slash + 1);
   if (!name.endsWith('.mts') && !name.endsWith('.ts') && !name.endsWith('.tsx') || name.includes('\\')) return undefined;
   const text = typeof input === 'string' ? input : Buffer.isBuffer(input) ? undefined : null;
-  if (text === null || text !== undefined && (!text.isWellFormed() || text.charCodeAt(0) === 0xFEFF)) return undefined;
-  if (text === undefined && input[0] === 0xEF) return undefined;
+  if (text === null) return undefined;
   if (flags === esm) {
     if (!fastMappedLoaded) {
       try {
@@ -30,6 +29,8 @@ function mappedTypeScript(input, file, flags, addon) {
       }
     }
   }
+  if (text !== undefined && (!text.isWellFormed() || text.charCodeAt(0) === 0xFEFF)) return undefined;
+  if (text === undefined && input[0] === 0xEF) return undefined;
   const emit = addon.emitTypeScript;
   const result = emit === undefined ? undefined : emit(text ?? input, flags | 16);
   if (result === null) return null;

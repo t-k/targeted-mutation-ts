@@ -19,6 +19,7 @@ let pulse;
 let v8;
 let fastEmit;
 let fastEmitTs;
+let fastEmitTsx;
 let fastEmitLoaded = false;
 
 const tsx = 1;
@@ -97,11 +98,12 @@ function compile(input, options) {
         if (code !== undefined) return { backend: 'javascript', code, sourceMap: null, diagnostics: [] };
       }
     } else if (kind >= 0) {
-      if (kind === esm || kind === 0) {
+      if (kind === esm || kind === 0 || (kind === tsx && flags === 0)) {
         if (!fastEmitLoaded) {
           const js = v8 ??= nativeAddon('compiler-js.node');
           fastEmit = js.emitFastModule;
           fastEmitTs = js.emitFastTs;
+          fastEmitTsx = js.emitFastTsx;
           fastEmitLoaded = true;
         }
         if (kind === esm) {
@@ -109,12 +111,14 @@ function compile(input, options) {
             const code = fastEmit(input);
             if (code !== undefined) return { backend: 'pulse', code, sourceMap: null, diagnostics: [] };
           }
-        } else if (fastEmitTs !== undefined) {
-          const len = typeof input === 'string' ? input.length : Buffer.isBuffer(input) ? input.byteLength : 0;
-          if (len >= 8192) {
-            const code = fastEmitTs(input);
+        } else if (kind === tsx) {
+          if (fastEmitTsx !== undefined) {
+            const code = fastEmitTsx(input);
             if (code !== undefined) return { backend: 'pulse', code, sourceMap: null, diagnostics: [] };
           }
+        } else if (fastEmitTs !== undefined) {
+          const code = fastEmitTs(input);
+          if (code !== undefined) return { backend: 'pulse', code, sourceMap: null, diagnostics: [] };
         }
       }
       const source = Buffer.isBuffer(input) || typeof input === 'string' ? input : null;

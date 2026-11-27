@@ -4154,25 +4154,44 @@ static bool unambiguous_projection(TmtPulseMemory_tape input, uint32_t records) 
 }
 #endif
 
-static char *render_jsx_module(TmtPulseMemory_tape input, TmtGrammar_span *spans, uint32_t records,
-  uint32_t insertion, bool typescript, unsigned classic, size_t *length, bool *complete, tmt_run_log *runs)
+static char *render_jsx_module(reusable_workspace *rws, TmtPulseMemory_tape input, TmtGrammar_span *spans, uint32_t records,
+  uint32_t first_at, uint32_t insertion, bool typescript, unsigned classic, size_t *length, bool *complete, tmt_run_log *runs)
 {
   size_t elements = 0, expression_begin = records;
+  bool spans_sorted = true, exprs_rev_sorted = true;
   const bool preserve = classic == jsx_mode_preserve;
 #ifdef TMT_V8_VALIDATOR
   uint32_t enum_records = 0;
 #endif
   for (uint32_t index = 0; index < records; index++) {
-    if (input.output[index].original == 0) spans[elements++] = input.output[index].left;
-    else if (input.output[index].original == 5) spans[--expression_begin] = input.output[index].left;
+    const uint32_t orig = input.output[index].original;
+    if (orig == 0) {
+      const TmtGrammar_span cur = input.output[index].left;
+      if (elements > 0 && spans_sorted && compare_spans(&spans[elements - 1], &cur) > 0) spans_sorted = false;
+      spans[elements++] = cur;
+    } else if (orig == 5) {
+      const TmtGrammar_span cur = input.output[index].left;
+      if (expression_begin < records && exprs_rev_sorted && compare_spans(&spans[expression_begin], &cur) > 0) exprs_rev_sorted = false;
+      spans[--expression_begin] = cur;
+    }
 #ifdef TMT_V8_VALIDATOR
-    else if (enum_record(input.output[index].original)) enum_records = records;
+    else if (enum_record(orig)) enum_records = records;
 #endif
   }
   const size_t expression_count = records - expression_begin;
   TmtGrammar_span *expressions = spans + expression_begin;
-  qsort(spans, elements, sizeof(*spans), compare_spans);
-  qsort(expressions, expression_count, sizeof(*spans), compare_spans);
+  if (!spans_sorted && elements > 1) qsort(spans, elements, sizeof(*spans), compare_spans);
+  if (expression_count > 1) {
+    if (exprs_rev_sorted) {
+      for (size_t i = 0, j = expression_count - 1; i < j; i++, j--) {
+        const TmtGrammar_span tmp = expressions[i];
+        expressions[i] = expressions[j];
+        expressions[j] = tmp;
+      }
+    } else {
+      qsort(expressions, expression_count, sizeof(*spans), compare_spans);
+    }
+  }
 #ifdef TMT_V8_VALIDATOR
   /* Kept JSX is published only from a certified projection of a TypeScript module, or a validated .jsx module. */
   if (preserve && typescript && !input.capture_types) return NULL;
@@ -4201,8 +4220,9 @@ static char *render_jsx_module(TmtPulseMemory_tape input, TmtGrammar_span *spans
   }
   if (input.capture_types) {
     char *masked;
+    bool masked_owned = true;
     projection_facts facts;
-    if (blank_type_records(input, records, TmtPulseCompiler_runtime_source_start(input).at, &masked, false, &facts, NULL, NULL)) {
+    if (blank_type_records(input, records, first_at, &masked, false, &facts, rws, &masked_owned)) {
       TmtPulseMemory_tape projected = input;
       if (masked) projected.source = (uint8_t *)masked;
       {
@@ -4221,7 +4241,7 @@ static char *render_jsx_module(TmtPulseMemory_tape input, TmtGrammar_span *spans
             module = lowered && lowered_length <= 1048576 && tmt_module_marker((uint8_t *)lowered, (uint32_t)lowered_length, false);
             free(lowered);
           }
-          free(masked);
+          if (masked_owned) free(masked);
           if (!facts.uncertified && module) {
             *complete = true;
             return code;
@@ -4233,13 +4253,13 @@ static char *render_jsx_module(TmtPulseMemory_tape input, TmtGrammar_span *spans
                      (*length <= 1048576 && tmt_module_marker((uint8_t *)code, (uint32_t)*length, false))) &&
             publishable(!facts.uncertified, code, *length, "tsx")) {
           *complete = true;
-          free(masked);
+          if (masked_owned) free(masked);
           return code;
         }
         if (!masked && !enum_records) return code;
         free(code);
       }
-      free(masked);
+      if (masked_owned) free(masked);
     }
   }
   if (preserve) return NULL;
@@ -4257,7 +4277,6 @@ static char *lower_jsx_module(void *ws, uint8_t *source, uint32_t size, bool typ
   module_workspace stack_memory;
   module_workspace *memory = rws ? &rws->memory : &stack_memory;
   if (!rws) fresh_workspace(memory);
-  else memset(memory->marks, 0, sizeof(memory->marks));
   TmtPulseMemory_tape input = with_workspace(source, size, memory);
   const TmtPulseParser_cursor first = TmtPulseCompiler_runtime_source_start(input);
   if (!first.ok) return NULL;
@@ -4288,7 +4307,7 @@ static char *lower_jsx_module(void *ws, uint8_t *source, uint32_t size, bool typ
     }
     if (small.status == 0 && small.count <= input.capacity) {
       TmtGrammar_span spans[sizeof(memory->marks)];
-      return render_jsx_module(input, spans, small.count, insertion, typescript, classic, length, complete, runs);
+      return render_jsx_module(rws, input, spans, small.count, first.at, insertion, typescript, classic, length, complete, runs);
     }
     if (small.status != 4) return NULL;
   }
@@ -4335,7 +4354,7 @@ static char *lower_jsx_module(void *ws, uint8_t *source, uint32_t size, bool typ
       parsed = capture_jsx(input, module);
     }
     if (parsed.status == 0 && parsed.count <= capacity) {
-      result = render_jsx_module(input, spans, parsed.count, insertion, typescript, classic, length, complete, runs);
+      result = render_jsx_module(rws, input, spans, parsed.count, first.at, insertion, typescript, classic, length, complete, runs);
     }
   }
   if (owned_bufs) {

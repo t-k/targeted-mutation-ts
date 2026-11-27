@@ -95,6 +95,20 @@ try {
                 }
               }
             }
+            const fastTsx = addon.exports.emitFastTsx;
+            if (fastTsx) {
+              for (const f of [
+                'build/compiler-upstream/official-oxc-transform-UserSettings.tsx.json',
+                'build/compiler-upstream/official-oxc-transform-table.tsx.json',
+              ]) {
+                if (!fs.existsSync(f)) continue;
+                const rows = JSON.parse(fs.readFileSync(f, 'utf8'));
+                for (const r of rows) {
+                  const b = Buffer.from(r.source, 'base64');
+                  for (let k = 0; k < 15; k++) fastTsx(b);
+                }
+              }
+            }
           `;
           const trained = spawnSync(process.execPath, ['-e', jsTrain], { cwd: root, encoding: 'utf8' });
           const profTool = macOS ? 'xcrun' : 'llvm-profdata';
