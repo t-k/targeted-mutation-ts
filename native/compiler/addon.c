@@ -632,24 +632,66 @@ static TMT_MAP_COLD napi_status create_mapped_result(napi_env env, const uint8_t
   return status;
 }
 
+typedef struct {
+  uint8_t *utf8_buf;
+  size_t utf8_cap;
+} addon_state;
+
+static void finalize_addon_state(napi_env env, void *data, void *hint) {
+  (void)env;
+  (void)hint;
+  addon_state *state = data;
+  if (state) {
+    free(state->utf8_buf);
+    free(state);
+  }
+}
+
 /*
  * The default-option TypeScript route in one call. The steps and their order mirror compile() in
  * src/compiler-routes.cjs, which also decides every input this entry returns undefined for.
+ * Returns a string (or [code, mappings] when mapped) on success, null on a complete non-JSX
+ * native decline (allowing the router to skip duplicate native calls), and undefined otherwise.
  */
 static napi_value emit_typescript(napi_env env, napi_callback_info info) {
   napi_value args[2], result;
-  size_t argc = 2, size, length = 0;
+  size_t argc = 2, size = 0, length = 0;
   uint32_t flags;
-  void *bytes;
+  void *bytes = NULL;
   char *output = NULL;
+  bool complete_decline = false;
   NAPI(napi_get_cb_info(env, info, &argc, args, NULL, NULL));
   if (argc != 2) goto error;
-  NAPI(napi_get_buffer_info(env, args[0], &bytes, &size));
   NAPI(napi_get_value_uint32(env, args[1], &flags));
-  uint8_t *source = bytes;
+  napi_valuetype arg_type;
+  NAPI(napi_typeof(env, args[0], &arg_type));
+  uint8_t *source = NULL;
   tmt_run_log runs = { 0 };
   const bool jsx = flags & emit_tsx, esm = flags & emit_esm, classic = flags & emit_classic;
-  if (!size || size > source_limit || !unshared_buffer(env, args[0]) || !valid_utf8(source, size)) goto decline;
+  if (arg_type == napi_string) {
+    void *raw_state = NULL;
+    NAPI(napi_get_instance_data(env, &raw_state));
+    addon_state *state = raw_state;
+    if (!state) goto decline;
+    NAPI(napi_get_value_string_utf8(env, args[0], NULL, 0, &size));
+    if (!size || size > source_limit) goto decline;
+    if (size + 1 > state->utf8_cap) {
+      size_t next_cap = size + 1;
+      if (next_cap < 65536) next_cap = 65536;
+      uint8_t *grown = realloc(state->utf8_buf, next_cap);
+      if (!grown) goto error;
+      state->utf8_buf = grown;
+      state->utf8_cap = next_cap;
+    }
+    NAPI(napi_get_value_string_utf8(env, args[0], (char *)state->utf8_buf, state->utf8_cap, &size));
+    /* Lone surrogates are converted to U+FFFD (EF BF BD) by N-API; decline so JS checks isWellFormed(). */
+    if (contains(state->utf8_buf, size, "\xef\xbf\xbd", false)) goto decline;
+    source = state->utf8_buf;
+  } else {
+    NAPI(napi_get_buffer_info(env, args[0], &bytes, &size));
+    source = bytes;
+    if (!size || size > source_limit || !unshared_buffer(env, args[0]) || !valid_utf8(source, size)) goto decline;
+  }
   const uint32_t width = (uint32_t)size;
   /*
    * The restricted grammars start at an export after trivia. An import cannot use them, and a leading
@@ -680,6 +722,24 @@ static napi_value emit_typescript(napi_env env, napi_callback_info info) {
     if (output) goto publish;
   }
   if (!jsx || !memchr(source, '<', size)) {
+#ifdef TMT_V8_VALIDATOR
+    /* A large pure-JS ESM module without `<` (no generic calls `f<T>(1)` or HTML comments),
+     * escapes, or TS-only import/optional-private forms, and with a verified top-level module
+     * marker (so `export {};` is never needed), can be validated directly by V8. */
+    if (esm && !jsx && size >= 65536 && directive == TMT_TRIPLE_SLASH_ABSENT &&
+        source[0] != 0x23 && ascii_text((const char *)source, size) &&
+        !memchr(source, '<', size) &&
+        !contains(source, size, "\\u", false) && !contains(source, size, "import", false) &&
+        !contains(source, size, "?.", false) && !contains(source, size, "for", false) &&
+        tmt_module_marker(source, width, false) &&
+        tmt_valid_module_source((const char *)source, size)) {
+      const napi_status created = flags & emit_mapped
+        ? create_mapped_result(env, source, size, (const char *)source, size, NULL, &result)
+        : create_source_string(env, (const char *)source, size, &result);
+      NAPI(created);
+      return result;
+    }
+#endif
     output = (char *)type_only_module(source, width, esm, &length);
     if (output) goto publish;
     bool checked, script;
@@ -689,6 +749,10 @@ static napi_value emit_typescript(napi_env env, napi_callback_info info) {
       &length, &checked, &complete, &script, &property, flags & emit_mapped ? &runs : NULL);
     if (output && complete && !script) goto publish;
     /* Scripts, partial projections and compatibility hints continue in JavaScript. */
+    if (!jsx && directive == TMT_TRIPLE_SLASH_ABSENT && !output && !checked && property == TMT_PARAMETER_NONE &&
+        source[0] != 0x23 && source[0] != 0xef) {
+      complete_decline = true;
+    }
     goto decline;
   }
   if (runtime && !spells_helper_letter(source, size)) {
@@ -698,7 +762,7 @@ static napi_value emit_typescript(napi_env env, napi_callback_info info) {
 decline:
   free(output);
   free(runs.items);
-  NAPI(napi_get_undefined(env, &result));
+  NAPI(complete_decline ? napi_get_null(env, &result) : napi_get_undefined(env, &result));
   return result;
 publish:
   {
@@ -877,6 +941,14 @@ error:
 
 static napi_value init(napi_env env, napi_value exports) {
   napi_value entry;
+#ifndef TMT_DIRECT
+  addon_state *state = calloc(1, sizeof(*state));
+  if (!state) goto error;
+  if (napi_set_instance_data(env, state, finalize_addon_state, NULL) != napi_ok) {
+    free(state);
+    goto error;
+  }
+#endif
 #ifdef TMT_DIRECT
   NAPI(napi_create_function(env, "compile", NAPI_AUTO_LENGTH, compile_source, NULL, &entry));
   NAPI(napi_set_named_property(env, exports, "compile", entry));

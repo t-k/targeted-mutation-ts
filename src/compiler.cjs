@@ -49,12 +49,16 @@ function sourceKind(file) {
 }
 
 let routes;
+let maps;
 function compile(input, options) {
   let file = 'input.ts';
   let flags = 0;
   let defaults = options === undefined;
   if (!defaults && options !== null && typeof options === 'object') {
-    if (options.mode === undefined && options.target === undefined && options.module === undefined && options.sourceMap === undefined &&
+    if ((options.mode === undefined || options.mode === 'transform') &&
+        (options.target === undefined || options.target === 'esnext') &&
+        (options.module === undefined || options.module === 'preserve') &&
+        (options.sourceMap === undefined || options.sourceMap === false) &&
         options.experimentalDecorators === undefined && options.emitDecoratorMetadata === undefined) {
       const name = options.file;
       const jsx = options.jsx;
@@ -65,8 +69,11 @@ function compile(input, options) {
       }
     } else {
       // Spelled-out options are rarer. Their handling lives in a file that a default compile never loads.
-      const result = require('./compiler-maps.cjs').compileExplicit(input, options, compile, sourceKind,
+      const result = (maps ??= require('./compiler-maps.cjs')).compileExplicit(input, options, compile, sourceKind,
         () => pulse ??= nativeAddon('compiler-module.node'));
+      if (result === null) {
+        return (routes ??= require('./compiler-routes.cjs').compile)(input, options, true);
+      }
       if (result !== undefined) {
         return options.mode !== 'strip' && typeof result.code === 'string' && result.code.charCodeAt(0) === 35 ?
           require('./compiler-routes.cjs').unixHashbang(result) : result;
@@ -88,14 +95,17 @@ function compile(input, options) {
       }
     } else if (kind >= 0) {
       const source = Buffer.isBuffer(input) ? input :
-        typeof input === 'string' && input.isWellFormed() ? Buffer.from(input) : null;
+        typeof input === 'string' && input.isWellFormed() ? input : null;
       const emit = source === null ? undefined : (pulse ??= nativeAddon('compiler-module.node')).emitTypeScript;
       if (emit !== undefined) {
         const code = emit(source, kind | flags);
-        if (code !== undefined) {
+        if (typeof code === 'string') {
           const result = { backend: 'pulse', code, sourceMap: null, diagnostics: [] };
           // An interpreter line is rare; its line break is normalized where the other routes live.
           return code.charCodeAt(0) === 35 ? require('./compiler-routes.cjs').unixHashbang(result) : result;
+        }
+        if (code === null) {
+          return (routes ??= require('./compiler-routes.cjs').compile)(input, options, true);
         }
       }
     }

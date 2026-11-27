@@ -29,8 +29,9 @@ const shared = macOS ? ['-bundle', '-undefined', 'dynamic_lookup', '-Wl,-dead_st
 mkdirSync(output, { recursive: true });
 const scratch = mkdtempSync(resolve(output, '.compiler-'));
 try {
+  const cpuFlags = process.env.TMT_NATIVE_CPU === '1' && macOS && process.arch === 'arm64' ? ['-mcpu=native'] : [];
   const validator = resolve(scratch, 'validate-js.o');
-  const validatorSources = ['-std=c++20', '-O3', '-fPIC', '-fvisibility=hidden',
+  const validatorSources = ['-std=c++20', '-O3', ...cpuFlags, '-fPIC', '-fvisibility=hidden',
     ...auditFlags, '-isystem', headers, 'native/compiler/validate-js.cc'];
   const checked = spawnSync(cpp, [...validatorSources, '-c', '-o', validator], { cwd: root, encoding: 'utf8' });
   if (values['audit-v8'] && checked.status !== 0) throw new Error(checked.stderr || checked.error?.message);
@@ -49,7 +50,7 @@ try {
   const inlining = clang ? (macOS ? ['-mllvm', '-inline-threshold=2000', '-Wl,-mllvm,-inline-threshold=2000'] : []) :
     ['--param=inline-unit-growth=1000', '--param=max-inline-insns-single=6000', '--param=max-inline-insns-auto=600',
       '--param=large-function-growth=2000', '--param=large-unit-insns=400000', '--param=large-function-insns=20000'];
-  const common = ['-std=c11', '-O3', ...inlining, '-fPIC', '-fvisibility=hidden', '-Wall', '-Wextra', '-Werror',
+  const common = ['-std=c11', '-O3', ...cpuFlags, ...inlining, '-fPIC', '-fvisibility=hidden', '-Wall', '-Wextra', '-Werror',
     '-Wno-parentheses', '-I', headers, '-I', 'native/runtime',
     ...(values['scalar-scans'] ? ['-DTMT_SCALAR_SCANS'] : []),
     ...shared,

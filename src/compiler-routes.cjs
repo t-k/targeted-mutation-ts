@@ -599,6 +599,12 @@ function hasDuplicateTopLevelLexical(text) {
 }
 
 function validJavaScriptTsModule(addon, source, text, file, format, directive = false, sourceMap = false) {
+  const validators = javascriptValidators();
+  if (!validators.validModule || !validators.validScript) return null;
+  // For `format === 'esm'` (e.g. `.mts`) or `sourceMap === true`, only `validModule(text)` can succeed;
+  // check it first so TypeScript files exit immediately without running comment/string regexes.
+  const preValidMod = (format !== 'preserve' || sourceMap) ? validators.validModule(text) : undefined;
+  if (preValidMod === false) return null;
   const noComments = (text.includes('/*') || text.includes('//'))
     ? text.replace(/("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n\u2028\u2029]*/g, (m, str) => str || ' ')
     : text;
@@ -610,11 +616,9 @@ function validJavaScriptTsModule(addon, source, text, file, format, directive = 
       require('./compiler-ts-lower.cjs').hasForBracketIn(noComments)) {
     return null;
   }
-  const validators = javascriptValidators();
-  if (!validators.validModule || !validators.validScript) return null;
   let code = null;
   const genericCallSafe = !hasEscapedKeyword(text, true);
-  if (genericCallSafe && validators.validModule(text) && !validators.validScript(text) && /\b(?:import|export)\b/.test(text)) {
+  if (genericCallSafe && (preValidMod ?? validators.validModule(text)) && !validators.validScript(text) && /\b(?:import|export)\b/.test(text)) {
     code = text;
   } else if (genericCallSafe && !sourceMap && format === 'preserve' && !/\b(?:import|export)\b/.test(text) && validators.validScript(text)) {
     code = strictScript(text, file, directive);
@@ -881,26 +885,55 @@ const tsRejectsInNodeStrip = /\\u003[0-9]|\\u\{0*3[0-9]\}|\?\.[^\n;]*#|\bfor\s*\
 
 let _lastCleanRejectSrc = null;
 
+const tsRejectsInNodeStripG = new RegExp(tsRejectsInNodeStrip.source, 'g');
+const slashOrTplBeforeComment = /(?:\/(?![/*])|`)[^\r\n\u2028\u2029]*(?:\/\/|\/\*)/;
+const multilineMaskingBlock = /\/(?![/*])[^\r\n\u2028\u2029]*\/\*|`[^`]*\/\*/;
+let _tsLower;
+function getTsLower() { return _tsLower ??= require('./compiler-ts-lower.cjs'); }
+
 function hasTsRejectsInNodeStrip(source) {
   if (source === _lastCleanRejectSrc) return false;
   const noComments = (source.includes('/*') || source.includes('//'))
     ? source.replace(/("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|\/\*[^*]*\*+(?:[^/*][^*]*\*+)*\/|\/\/[^\r\n\u2028\u2029]*/g, (m, str) => str || ' ')
     : source;
-  if (tsRejectsInNodeStrip.test(noComments) || require('./compiler-ts-lower.cjs').hasForBracketIn(noComments)) return true;
-  if (noComments !== source && tsRejectsInNodeStrip.test(source)) {
-    const tsLower = require('./compiler-ts-lower.cjs');
-    const toks = tsLower.tokenizeReadOnly(source);
-    if (toks) {
-      let rebuilt = '';
-      for (let i = 0; i < toks.length; i++) {
-        if (i > 0 && toks[i].start > toks[i - 1].end) {
-          rebuilt += source.slice(toks[i - 1].end, toks[i].start).includes('\n') ? '\n' : ' ';
+  if (tsRejectsInNodeStrip.test(noComments) || getTsLower().hasForBracketIn(noComments)) return true;
+  if (noComments !== source) {
+    // Re-check via the regex/template-aware tokenizer whenever a regex or template literal could have
+    // masked `//` or `/*` (including quantifiers like `/a*[/*]/` or multi-line `/*` inside `/[/*]/` / `` `/*` ``).
+    let needsTokenCheck = multilineMaskingBlock.test(source) && tsRejectsInNodeStrip.test(source);
+    if (!needsTokenCheck && slashOrTplBeforeComment.test(source)) {
+      tsRejectsInNodeStripG.lastIndex = 0;
+      let lastLineStart = -1;
+      for (let m; (m = tsRejectsInNodeStripG.exec(source)) !== null;) {
+        let lineStart = m.index;
+        while (lineStart > 0) {
+          const c = source.charCodeAt(lineStart - 1);
+          if (c === 10 || c === 13 || c === 0x2028 || c === 0x2029) break;
+          lineStart--;
         }
-        rebuilt += toks[i].text;
+        if (lineStart === lastLineStart) continue;
+        lastLineStart = lineStart;
+        if (slashOrTplBeforeComment.test(source.slice(lineStart, m.index))) {
+          needsTokenCheck = true;
+          break;
+        }
       }
-      if (tsRejectsInNodeStrip.test(rebuilt)) return true;
     }
-    if (source.includes('@') && tsLower.eraseNonEsDecorators(source)?.changed) return true;
+    if (needsTokenCheck) {
+      const tsLower = getTsLower();
+      const toks = tsLower.tokenizeReadOnly(source);
+      if (toks) {
+        const parts = [];
+        for (let i = 0; i < toks.length; i++) {
+          if (i > 0 && toks[i].start > toks[i - 1].end) {
+            parts.push(source.slice(toks[i - 1].end, toks[i].start).includes('\n') ? '\n' : ' ');
+          }
+          parts.push(toks[i].text);
+        }
+        if (tsRejectsInNodeStrip.test(parts.join(''))) return true;
+      }
+      if (source.includes('@') && tsLower.eraseNonEsDecorators(source)?.changed) return true;
+    }
   }
   if (/\([ \t]*await[ \t]*\)(?![ \t]*\{)/.test(noComments) && !/\bfunction\b/.test(noComments) && !/\basync[ \t]*\([ \t]*await[ \t]*\)[ \t]*(?::[^\n]*?)?=>/.test(noComments)) return true;
   // TypeScript rejects multiple `/// <amd-module` directives in one file.
@@ -1443,13 +1476,13 @@ function writtenAsNewest(input, jsxFile, year, allowStage3 = false) {
   return true;
 }
 
-function compile(input, options = {}) {
+function compile(input, options = {}, declinedNative = false) {
   const { file = 'input.ts', mode = 'transform', target = 'esnext', module = 'preserve', jsx = 'automatic',
     sourceMap = false, experimentalDecorators = false, emitDecoratorMetadata = false } = options;
   if (typeof file !== 'string' || !extensions.test(file)) throw new TypeError('Expected a JS, TS, JSX or TSX filename');
   // Bytes in a plain Uint8Array are read in place like those of a Buffer, so both take the same routes.
   if (input instanceof Uint8Array && !Buffer.isBuffer(input) && !(types ??= require('node:util').types).isSharedArrayBuffer(input.buffer)) {
-    return compile(Buffer.from(input.buffer, input.byteOffset, input.byteLength), options);
+    return compile(Buffer.from(input.buffer, input.byteOffset, input.byteLength), options, declinedNative);
   }
   if (typeof experimentalDecorators !== 'boolean' || typeof emitDecoratorMetadata !== 'boolean' ||
       (emitDecoratorMetadata && !experimentalDecorators)) {
@@ -1738,24 +1771,28 @@ function compile(input, options = {}) {
         }
       }
     } else if (jsx !== 'preserve') {
-      // The entry calls the same function, so both callers publish the same result.
-      const result = mapper ? require('./compiler-maps.cjs').mappedTypeScript(input, file,
-        (format === 'esm' ? 2 : 0) | (jsxFile ? 1 : 0) | (jsxFile && jsx === 'classic' ? 4 : 0), mapper) : undefined;
-      if (result !== undefined) return result;
-      const script = mappedScript(input, options);
+      let declinedMapped = declinedNative;
+      if (!declinedMapped) {
+        // The entry calls the same function, so both callers publish the same result.
+        const result = mapper ? require('./compiler-maps.cjs').mappedTypeScript(input, file,
+          (format === 'esm' ? 2 : 0) | (jsxFile ? 1 : 0) | (jsxFile && jsx === 'classic' ? 4 : 0), mapper) : undefined;
+        if (result === null) declinedMapped = true;
+        else if (result !== undefined) return result;
+      }
+      const script = declinedMapped ? undefined : mappedScript(input, options);
       if (script !== undefined) return script;
       if (mapper && !jsxFile && !file.includes('\\')) {
         const stable = snapshot(input);
         const source = Buffer.isBuffer(stable) ? stable : typeof stable === 'string' && stable.isWellFormed() ? Buffer.from(stable) : null;
         if (source !== null && source.length <= 1048576 && source[0] !== 0xEF && (validUtf8 ??= require('node:buffer').isUtf8)(source) &&
-            loadDirectAddon()?.leadingTripleSlash(source) === 0) {
+            (declinedMapped || loadDirectAddon()?.leadingTripleSlash(source) === 0)) {
           const named = highByteNames(mapper, source, typeof stable === 'string' ? stable : source.toString(), file, format, true);
           if (named !== null) return named;
           const plainJs = validJavaScriptTsModule(mapper, source, typeof stable === 'string' ? stable : source.toString(), file, format, false, true);
           if (plainJs !== null) return plainJs;
           // Projection source map for node-strip blank-in-place erased outputs (avoids falling back to TypeScript).
           if (mapper.projectionMappings && (file.endsWith('.ts') || file.endsWith('.mts'))) {
-            const plain = compile(source, { ...options, sourceMap: false });
+            const plain = compile(source, { file, mode, target, module, jsx, sourceMap: false, experimentalDecorators, emitDecoratorMetadata }, declinedMapped);
             if (plain.backend === 'node-strip' && typeof plain.code === 'string' && plain.diagnostics.length === 0) {
               const strictHead = '"use strict";\n';
               const addedStrict = plain.code.startsWith(strictHead) && !source.subarray(0, strictHead.length).equals(Buffer.from(strictHead));
@@ -1771,8 +1808,9 @@ function compile(input, options = {}) {
       }
     }
   }
+  const alreadyDeclined = declinedNative && typed && !jsxFile && mode === 'transform';
   let direct;
-  if (typed && !jsxFile && target === 'esnext' && format !== 'cjs' && !sourceMap &&
+  if (!alreadyDeclined && typed && !jsxFile && target === 'esnext' && format !== 'cjs' && !sourceMap &&
       Buffer.isBuffer(input) && input.length > 0 && input.length <= 512) {
     direct = loadDirectAddon()?.compileAscii?.(input);
     if (typeof direct === 'string') return { backend: 'pulse', code: direct, sourceMap: null, diagnostics: [] };
@@ -1782,7 +1820,7 @@ function compile(input, options = {}) {
     const source = Buffer.isBuffer(stableInput) ? stableInput :
       typeof stableInput === 'string' && stableInput.isWellFormed() ? Buffer.from(stableInput) : null;
     // The direct grammar starts at an export after trivia. Imports and interfaces cannot use it.
-    const skipsDirectAddon = typed && mode === 'transform' && source?.[0] === 105;
+    const skipsDirectAddon = alreadyDeclined || (typed && mode === 'transform' && source?.[0] === 105);
     const native = source && !skipsDirectAddon ? loadDirectAddon() : null;
     const wellFormed = source && (skipsDirectAddon || native) && (validUtf8 ??= require('node:buffer').isUtf8)(source);
     // 0 without a leading triple-slash comment, 1 for notes and well-formed references, 2 for anything else.
@@ -1797,7 +1835,7 @@ function compile(input, options = {}) {
       // Behind a well-formed directive only the module emitters run. They keep it as a comment.
       // TypeScript reports a malformed one, so that case skips the native routes.
       const directive = slashes === 1;
-      const simple = native && !directive && typed && !jsxFile && direct !== null ? native.compile(source) : null;
+      const simple = !alreadyDeclined && native && !directive && typed && !jsxFile && direct !== null ? native.compile(source) : null;
       if (simple !== null) return { backend: 'pulse', code: simple, sourceMap: null, diagnostics: [] };
       // Whole-source scans are deferred. The native emitters find enum declarations themselves.
       let scanned;
@@ -1808,7 +1846,7 @@ function compile(input, options = {}) {
           loadModuleAddon()?.jsxPragmaSupported?.(source, jsx === 'classic') === true) && !source.includes('_tmt') :
         typed && source.includes('enum') && /\benum\b/.test(typeof stableInput === 'string' ? stableInput : source.toString()));
       // The single-declaration emitter accepts a TypeScript file only when it starts with an enum.
-      if (mode === 'transform' && native && !directive && (jsxFile ? runtime() : typed)) {
+      if (!alreadyDeclined && mode === 'transform' && native && !directive && (jsxFile ? runtime() : typed)) {
         const code = native.lower(source, jsxFile, typed, jsx === 'classic', false);
         if (code !== null) return { backend: 'pulse', code, sourceMap: null, diagnostics: [] };
       }
@@ -1824,7 +1862,7 @@ function compile(input, options = {}) {
             const code = modernJavaScript(typeof stableInput === 'string' ? stableInput : source.toString(), file, format);
             if (code !== null) return { backend: 'javascript', code, sourceMap: null, diagnostics: [] };
           }
-          const moduleProjection = typed && (!jsxFile || !source.includes('<'));
+          const moduleProjection = !alreadyDeclined && typed && (!jsxFile || !source.includes('<'));
           const empty = moduleProjection ? addon.eraseTypeModule(source, format === 'esm') : null;
           if (empty !== null) return { backend: 'pulse', code: empty, sourceMap: null, diagnostics: [] };
           const annotated = moduleProjection ?
@@ -2002,8 +2040,9 @@ function compile(input, options = {}) {
             const text = typeof stableInput === 'string' ? stableInput : source.toString();
             const property = annotated?.parameterProperty === true;
             // Original fast paths first: strict eraseModule/eraseScript -> highByteNames (pulse) -> validJavaScriptTsModule (javascript)
+            const strictMod = !directive && (property || annotated === true || addon.moduleMarker(source, true));
             if (!directive) {
-              const origResult = (property || annotated === true || addon.moduleMarker(source, true))
+              const origResult = strictMod
                 ? eraseModule(addon, text, file, format, property)
                 : (format === 'preserve' && !/\b(?:import|export)\b/.test(text) && addon.plainScript(source))
                   ? eraseScript(addon, text, source, file, false)
@@ -2022,7 +2061,7 @@ function compile(input, options = {}) {
               if (plainJs) return plainJs;
             }
             // Extended erasure and TS-to-JS lowering routes for remaining TypeScript files.
-            const triedOrigMod = !directive && (property || annotated === true || addon.moduleMarker(source, true));
+            const triedOrigMod = strictMod;
             const noBom = text.charCodeAt(0) === 0xFEFF && !text.startsWith('\uFEFF#!') ? text.slice(1) : text;
             const hasTsDirectiveComment = noBom.includes('// @') || noBom.includes('//@');
             const extMod = directive || hasTsDirectiveComment || noBom.includes('declare module') || noBom.includes('declare global') || /\bexport[ \t]+(?:default|declare)\b/.test(noBom) || hasStaticPrototypeMember(noBom);
@@ -2207,5 +2246,5 @@ function mappedJavaScript(source, file, format) {
 }
 
 // Strip mode keeps every position of its input, the carriage return included.
-exports.compile = (input, options) => options?.mode === 'strip' ? compile(input, options) : unixHashbang(compile(input, options));
+exports.compile = (input, options, declinedNative = false) => options?.mode === 'strip' ? compile(input, options, declinedNative) : unixHashbang(compile(input, options, declinedNative));
 exports.unixHashbang = unixHashbang;

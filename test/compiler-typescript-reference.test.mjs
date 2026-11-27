@@ -4002,3 +4002,75 @@ test('R62 performance fast-paths preserve soundness, cache isolation, and bounda
   assert.equal(tsLower.hasTopLevelModuleSyntax('import type Q = X.Y;\n'), false);
   assert.equal(tsLower.hasTopLevelModuleSyntax('import Q /*c*/ = X.Y;\n'), false);
 });
+
+test('R63 native fast-path, >=64KiB .mts boundary, inherited options, and multiline regex/template masking', () => {
+  // 1. >=64KiB .mts with generic call `f<T>(1)` must still erase `<T>` (not treat as comparison)
+  const genericBody = '\nconst f = (x) => x + 1;\nconst T = 7;\nexport const result = f<T>(1);\n';
+  for (const padLen of [65535 - genericBody.length, 65536 - genericBody.length, 65540 - genericBody.length]) {
+    const src = `/*${'x'.repeat(Math.max(0, padLen - 4))}*/` + genericBody;
+    for (const sourceMap of [false, true]) {
+      for (const inp of [src, Buffer.from(src)]) {
+        const r = compile(inp, { file: 'r63-generic.mts', sourceMap });
+        assert.ok(typeof r.code === 'string');
+        assert.ok(!r.code.includes('f<T>(1)'), `padLen=${padLen} sourceMap=${sourceMap}`);
+      }
+    }
+  }
+
+  // 2. >=64KiB .mts without import/export must preserve module semantics (`export {};`),
+  // and Unicode identifiers rejected by TS 6.0.3 (e.g. U+1C89) must still fail above 64KiB.
+  const noModBody = '\nconst x = 1;\n';
+  const bigNoMod = ' '.repeat(65536) + noModBody;
+  for (const sourceMap of [false, true]) {
+    const r = compile(bigNoMod, { file: 'r63-nomod.mts', sourceMap });
+    assert.ok(typeof r.code === 'string');
+    assert.ok(r.code.includes('export {}'), `sourceMap=${sourceMap}`);
+  }
+  const bigUni = ' '.repeat(65536) + '\nexport const \u1C89 = 1;\n';
+  for (const sourceMap of [false, true]) {
+    const r = compile(bigUni, { file: 'r63-uni.mts', sourceMap });
+    assert.equal(r.code, null, `sourceMap=${sourceMap}`);
+    assert.ok(r.diagnostics.length > 0, `sourceMap=${sourceMap}`);
+  }
+
+  // 3. Multiline regex `/[/*]/`, `/a*[/*]/`, `/a*[//]/`, and template `` `//` `` / `` `/*` `` masking invalid syntax or decorators
+  for (const bad of [
+    'const r = /[/*]/;\ntype class = string;\n/* end */\n',
+    'const r = /a*[/*]/;\ntype class = string;\n/* end */\n',
+    'const r = /a*[//]/; type class = string;\n',
+    'const r = `//`; type class = string;\n',
+    'const r = `/*`;\ntype class = string;\n/* end */\n',
+  ]) {
+    for (const sourceMap of [false, true]) {
+      const r = compile(bad, { file: 'r63-mask-bad.ts', sourceMap });
+      assert.equal(r.code, null, `${bad} sourceMap=${sourceMap}`);
+      assert.ok(r.diagnostics.length > 0);
+    }
+  }
+  for (const multiDec of [
+    'const r = /[/*]/;\n@dec function f() {}\n/* */\n',
+    'const r = /a*[/*]/;\n@dec function f() {}\n/* */\n',
+    'const r = /a*[//]/; @dec function f() {}\n',
+  ]) {
+    for (const sourceMap of [false, true]) {
+      const r = compile(multiDec, { file: 'r63-mask-dec.ts', sourceMap });
+      assert.ok(typeof r.code === 'string');
+      assert.ok(!r.code.includes('@dec'), `sourceMap=${sourceMap} ${multiDec}`);
+      new Function(r.code);
+    }
+  }
+
+  // 4. Inherited options preserved on native decline, and caller-forged symbols cannot bypass UTF-8 validation
+  const inheritedOpts = Object.create({ file: 'r63-inherited.mts' });
+  const rInh = compile('const built = 1;\n', inheritedOpts);
+  assert.ok(typeof rInh.code === 'string');
+  assert.ok(rInh.code.includes('export {}'));
+  const badUtf8 = Buffer.from([0x2f, 0x2f, 0x20, 0xff, 0x0a, 0x65, 0x78, 0x70, 0x6f, 0x72, 0x74, 0x20, 0x7b, 0x7d, 0x3b]);
+  const rBad = compile(badUtf8, { file: 'r63-bad.ts', [Symbol.for('tmt.nativeDeclined')]: true });
+  assert.equal(rBad.code, null);
+  assert.equal(rBad.diagnostics[0]?.code, 'INVALID_ENCODING');
+
+  // 5. Direct emitTypeScript declines lone surrogate strings
+  const addon = createRequire(import.meta.url)('../build/compiler-module.node');
+  assert.equal(addon.emitTypeScript('export const s = "\ud800";\n', 0), undefined);
+});
