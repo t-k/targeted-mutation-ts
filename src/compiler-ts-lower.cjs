@@ -404,8 +404,13 @@ function eraseValidatedAmbientBlocks(source, isJsx = false) {
           em.includes('Import declarations in a namespace') || em.includes("Expected ';', '}' or <eof>")) {
         relaxedBody = relaxedBody.replace(/(?<=^|[;\r\n{])[ \t]*((?:export[ \t]+|declare[ \t]+)*)module(?=[ \t]+[A-Za-z_$][\w$.]*[ \t]*\{)/g, '$1namespace');
         relaxedBody = relaxedBody.replace(/(?<=^|[;\r\n{])[ \t]*(export[ \t]+)?declare(?=[ \t]+(?:export[ \t]+)?(?:class|function|var|let|const|enum|namespace|module|interface|type|abstract|async|import)\b)/g, '$1       ');
-        relaxedBody = relaxedBody.replace(/(?<=^|[;\r\n{])[ \t]*(?:export[ \t]+)?import[ \t]+[A-Za-z_$][\w$]*[ \t]*=[ \t]*require[ \t]*\([ \t]*(?:"[^"]*"|'[^']*')[ \t]*\)[ \t]*;?/g, '');
-        relaxedBody = relaxedBody.replace(/(?<=^|[;\r\n{])[ \t]*(?:export[ \t]+)?import[ \t]+[A-Za-z_$][\w$]*[ \t]*=[ \t]*[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*[ \t]*(?=;|[\r\n}])/g, '');
+        relaxedBody = relaxedBody.replace(/(?<=^|[;\r\n{])[ \t]*(?:export[ \t]+)?import[ \t]+[A-Za-z_$][\w$]*[ \t]*=[ \t]*require[ \t]*\([ \t]*(?:"[^"]*"|'[^']*')[ \t]*\)[ \t]*(?:;(?=[ \t]*(?:[\r\n}]|$|\/\/|\/\*))|(?=[\r\n}]))/g, '');
+        let badImportRhs = false;
+        relaxedBody = relaxedBody.replace(/(?<=^|[;\r\n{])[ \t]*(?:export[ \t]+)?import[ \t]+[A-Za-z_$][\w$]*[ \t]*=[ \t]*([A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*)[ \t]*(?=;|[\r\n}])/g, (m, rhs) => {
+          if (rhs.split('.').some(seg => RESERVED_NS.has(seg))) { badImportRhs = true; return m; }
+          return '';
+        });
+        if (badImportRhs) return null;
       }
       try {
         stripTypeScriptTypes(header + relaxedBody);
@@ -511,7 +516,7 @@ function decodeSimpleStringToken(tok) {
   return null;
 }
 
-function evalEnumExpr(expr, env, allowComputed = false, enumName = '', allEnums = null, allMemberNames = null, constNames = null) {
+function evalEnumExpr(expr, env, allowComputed = false, enumName = '', allEnums = null, allMemberNames = null, constNames = null, isMergedEnum = false, enumDeclCounts = null) {
   const s = expr.trim();
   if (!s) return null;
   const toks = tokenize(s);
@@ -539,7 +544,7 @@ function evalEnumExpr(expr, env, allowComputed = false, enumName = '', allEnums 
         if (sv === null) { ok = false; break; }
         acc += sv;
       } else if (tk.type === 'num') {
-        if (!/^(?:0|[1-9][0-9_]*)(?:\.[0-9_]+)?(?:[eE][+-]?[0-9_]+)?$/.test(tk.text)) { ok = false; break; }
+        if (!/^(?:0|[1-9](?:_?[0-9])*)(?:\.[0-9](?:_?[0-9])*)?(?:[eE][+-]?[0-9](?:_?[0-9])*)?$/.test(tk.text)) { ok = false; break; }
         const nv = Number(tk.text.replace(/_/g, ''));
         if (!Number.isFinite(nv)) { ok = false; break; }
         acc += String(nv);
@@ -690,8 +695,8 @@ function evalEnumExpr(expr, env, allowComputed = false, enumName = '', allEnums 
         // Bail on bare reference to a `const` variable (TS constant-folds `const d = 'd'` / `const X = 1000000`)
         if (constNames && constNames.has(tk.text)) return null;
         if (enumName && tk.text === enumName) {
-          // Allow `E.B` or `E["C"]` verbatim ONLY when `B`/`C` is NOT a member of this enum (including merged declarations)
-          if (allMemberNames && allMemberNames.has('__MERGED__')) return null;
+          // Allow `E.B` or `E["C"]` verbatim ONLY when `B`/`C` is NOT a member of this enum (and enum is not merged)
+          if (isMergedEnum) return null;
           if (toks[ti + 1]?.text === '.' && toks[ti + 2]?.type === 'id') {
             if (env.has(toks[ti + 2].text) || (allMemberNames && allMemberNames.has(toks[ti + 2].text))) return null;
             ti += 2;
@@ -706,7 +711,8 @@ function evalEnumExpr(expr, env, allowComputed = false, enumName = '', allEnums 
           return null;
         }
         if (allEnums && allEnums.has(tk.text)) {
-          // Allow `OtherEnum.X` verbatim ONLY when `OtherEnum` is in `allEnums` (Map) and `X` is NOT a constant member (num or str)
+          // Allow `OtherEnum.X` verbatim ONLY when `OtherEnum` is unmerged in `allEnums` (Map) and `X` is NOT a constant member
+          if (enumDeclCounts && (enumDeclCounts.get(tk.text) ?? 0) > 1) return null;
           const otherEnv = allEnums instanceof Map ? allEnums.get(tk.text) : null;
           if (otherEnv && toks[ti + 1]?.text === '.' && toks[ti + 2]?.type === 'id') {
             if (otherEnv.has(toks[ti + 2].text)) return null;
@@ -737,7 +743,7 @@ function evalEnumExpr(expr, env, allowComputed = false, enumName = '', allEnums 
 }
 
 // Lowers a single enum body `{ A, B = 2, C }` to TS-exact IIFE statements.
-function lowerEnumBody(name, bodySource, sharedEnv = null, allowComputed = false, allEnums = null, constNames = null, isMergedEnum = false) {
+function lowerEnumBody(name, bodySource, sharedEnv = null, allowComputed = false, allEnums = null, constNames = null, isMergedEnum = false, enumDeclCounts = null) {
   const tokens = tokenize(bodySource);
   if (!tokens) return null;
   // Split top-level comma-separated members
@@ -761,7 +767,6 @@ function lowerEnumBody(name, bodySource, sharedEnv = null, allowComputed = false
   if (start < tokens.length) members.push(tokens.slice(start));
 
   const allMemberNames = new Set();
-  if (isMergedEnum) allMemberNames.add('__MERGED__');
   for (const m of members) {
     if (m.length === 0) continue;
     if (m[0].type === 'id') {
@@ -810,7 +815,7 @@ function lowerEnumBody(name, bodySource, sharedEnv = null, allowComputed = false
         nextNum++;
       } else if (restM.length >= 2 && restM[0].text === '=') {
         const exprSrc = bodySource.slice(restM[1].start, restM[restM.length - 1].end).trim();
-        const ev = evalEnumExpr(exprSrc, env, allowComputed, name, allEnums, allMemberNames, constNames);
+        const ev = evalEnumExpr(exprSrc, env, allowComputed, name, allEnums, allMemberNames, constNames, isMergedEnum, enumDeclCounts);
         if (ev === null) return null;
         if (ev.kind === 'str') {
           lines.push(`    ${name}[${keyExpr}] = ${ev.raw};`);
@@ -837,7 +842,7 @@ function lowerEnumBody(name, bodySource, sharedEnv = null, allowComputed = false
       nextNum++;
     } else if (m.length >= 3 && m[1].type === 'punc' && m[1].text === '=') {
       const exprSrc = bodySource.slice(m[2].start, m[m.length - 1].end).trim();
-      const ev = evalEnumExpr(exprSrc, env, allowComputed, name, allEnums, allMemberNames, constNames);
+      const ev = evalEnumExpr(exprSrc, env, allowComputed, name, allEnums, allMemberNames, constNames, isMergedEnum, enumDeclCounts);
       if (ev === null) return null;
       if (ev.kind === 'str') {
         lines.push(`    ${name}[${propKey}] = ${ev.raw};`);
@@ -987,6 +992,20 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
     const edits = [];
     const declaredVars = new Set();
     const enumEnvs = new Map();
+    const enumDeclCounts = new Map();
+    {
+      let ed = 0;
+      for (let ei = 0; ei < toks.length - 2; ei++) {
+        if (toks[ei].text === '{') { ed++; continue; }
+        if (toks[ei].text === '}') { if (ed > 0) ed--; continue; }
+        if (ed === 0 && toks[ei].type === 'id' && toks[ei].text === 'enum' &&
+            toks[ei - 1]?.text !== '.' && toks[ei - 1]?.text !== 'declare' &&
+            toks[ei + 1]?.type === 'id' && toks[ei + 2]?.text === '{') {
+          const en = toks[ei + 1].text;
+          enumDeclCounts.set(en, (enumDeclCounts.get(en) ?? 0) + 1);
+        }
+      }
+    }
     const exportedVars = []; // { name, stmtStart, stmtEnd } for local bare-identifier rewriting inside parentNs
     let depth = 0;
     for (let i = 0; i < toks.length; i++) {
@@ -1114,8 +1133,8 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
         for (const dv of declaredVars) { if (!knownDecls.has(dv)) knownDecls.set(dv, null); }
         const constNames = new Set();
         for (const cm of src.matchAll(/\bconst[ \t]+([A-Za-z_$][\w$]*)[ \t]*(?::[^=;\n]+)?=/g)) constNames.add(cm[1]);
-        const isMergedEnum = (src.match(new RegExp(`\\benum[ \\t]+${enumName}\\b`, 'g'))?.length ?? 0) > 1;
-        const loweredBody = lowerEnumBody(enumName, bodySrc, sharedEnv, !parentNs && allowComputedEnum, knownDecls, constNames, isMergedEnum);
+        const isMergedEnum = (enumDeclCounts.get(enumName) ?? 0) > 1;
+        const loweredBody = lowerEnumBody(enumName, bodySrc, sharedEnv, !parentNs && allowComputedEnum, knownDecls, constNames, isMergedEnum, enumDeclCounts);
         if (loweredBody === null) return null;
         const arg = parentNs && isExport
           ? `${enumName} = ${parentNs}.${enumName} || (${parentNs}.${enumName} = {})`
@@ -1628,24 +1647,11 @@ function lowerParameterProperties(source) {
         else if (tk.type === 'id' && tk.text === 'super' && toks[k - 1]?.text !== '.') {
           superCount++;
           if (dBr === 0 && dP === 0 && dB === 0 && toks[k + 1]?.text === '(') {
-            // Verify `super(...)` is a standalone top-level statement, NOT a braceless control body (`if (c) super();`, `else super();`, `while (c) super();`, `lbl: super();`).
+            // Verify `super(...)` is a standalone top-level statement (very first statement after prologues, or
+            // immediately preceded by `;` or `}`), never a braceless control body or newline-continued expression (`void\nsuper()`).
             if (k > bodyCursor) {
               const prevTk = toks[k - 1];
-              if (prevTk.text !== ';' && prevTk.text !== '}') {
-                if (!hasNewlineBetween(source, prevTk.end, tk.start)) return null;
-                if (['else', 'do', ':', '?', ',', '=', '(', '[', '{', '&&', '||', '??', 'return', 'throw'].includes(prevTk.text)) return null;
-                if (prevTk.text === ')') {
-                  // Reject if `)` closes an `if`/`while`/`for`/`with` condition
-                  let mp = k - 1, pd = 0;
-                  while (mp >= bodyCursor) {
-                    if (toks[mp].text === ')') pd++;
-                    else if (toks[mp].text === '(') { if (--pd === 0) break; }
-                    mp--;
-                  }
-                  const beforeOpen = mp > bodyCursor ? toks[mp - 1]?.text : null;
-                  if (beforeOpen === 'if' || beforeOpen === 'while' || beforeOpen === 'for' || beforeOpen === 'with') return null;
-                }
-              }
+              if (prevTk.text !== ';' && prevTk.text !== '}') return null;
             }
             const closeSuper = findMatchingParen(toks, k + 1);
             if (closeSuper < 0 || closeSuper >= closeBody) return null;
@@ -1683,32 +1689,58 @@ function lowerParameterProperties(source) {
     edits.push({ start: assignInsertPos, end: assignInsertPos, text: assigns });
     i = closeBody;
   }
-  // Also erase stray `override` modifiers on non-constructor method/function parameters (e.g. `m(override p1: T) {}`),
-  // never inside call expressions like `foo(override x)`.
+  // Also erase stray `override` modifiers on non-constructor class method parameters (e.g. `class C { m(override p1: T) {} }`),
+  // strictly at class-body member depth 1 so call expressions like `true ? foo(override x) : 0` or `foo(override x)\n{}` are never touched.
   if (source.includes('override')) {
-    for (let i = 1; i < toks.length - 2; i++) {
-      if (toks[i].text !== '(') continue;
-      const beforeOpen = toks[i - 1];
-      if (!beforeOpen || (beforeOpen.type !== 'id' && beforeOpen.text !== ']' && beforeOpen.text !== '>')) continue;
-      if (['if', 'for', 'while', 'switch', 'with', 'catch', 'return', 'throw', 'new', 'typeof', 'void', 'delete'].includes(beforeOpen.text)) continue;
-      const closeP = findMatchingParen(toks, i);
-      if (closeP <= i + 1) continue;
-      const afterClose = toks[closeP + 1];
-      if (!afterClose || (afterClose.text !== '{' && afterClose.text !== ':' && afterClose.text !== '=>')) continue;
-      let dP = 0, dB = 0, dBr = 0, dA = 0;
-      for (let k = i + 1; k < closeP; k++) {
-        const tk = toks[k];
-        if (tk.text === '(') dP++; else if (tk.text === ')') dP--;
-        else if (tk.text === '[') dB++; else if (tk.text === ']') dB--;
-        else if (tk.text === '{') dBr++; else if (tk.text === '}') dBr--;
-        else if (tk.text === '<') dA++; else if (tk.text === '>') { if (dA > 0) dA--; }
-        else if (dP === 0 && dB === 0 && dBr === 0 && dA === 0 &&
-            tk.type === 'id' && tk.text === 'override' &&
-            (k === i + 1 || toks[k - 1].text === ',') &&
-            toks[k + 1]?.type === 'id' &&
-            (toks[k + 2]?.text === ':' || toks[k + 2]?.text === '?' || toks[k + 2]?.text === '=' || toks[k + 2]?.text === ',' || toks[k + 2]?.text === ')')) {
-          if (!edits.some(e => e.start <= tk.start && e.end >= tk.end)) {
-            edits.push({ start: tk.start, end: toks[k + 1].start, text: '' });
+    const classBodyDepths = [];
+    let brDepth = 0;
+    for (let i = 0; i < toks.length - 2; i++) {
+      const tk0 = toks[i];
+      if (tk0.type === 'id' && tk0.text === 'class' && toks[i - 1]?.text !== '.') {
+        let k = i + 1;
+        while (k < toks.length && toks[k].text !== '{') k++;
+        if (k < toks.length) classBodyDepths.push({ openIdx: k, depth: brDepth + 1 });
+      } else if (tk0.text === '{') {
+        brDepth++;
+      } else if (tk0.text === '}') {
+        if (classBodyDepths.length > 0 && classBodyDepths[classBodyDepths.length - 1].depth === brDepth) classBodyDepths.pop();
+        if (brDepth > 0) brDepth--;
+      } else if (tk0.text === '(' && classBodyDepths.length > 0 && brDepth === classBodyDepths[classBodyDepths.length - 1].depth) {
+        const beforeOpen = toks[i - 1];
+        if (!beforeOpen || (beforeOpen.type !== 'id' && beforeOpen.text !== ']' && beforeOpen.text !== '>')) continue;
+        const closeP = findMatchingParen(toks, i);
+        if (closeP <= i + 1) continue;
+        // Require a method body `{` after optional `: ReturnType` (with no statement boundary before `{`)
+        let mEnd = closeP + 1;
+        if (toks[mEnd]?.text === ':') {
+          mEnd++;
+          let rP = 0, rB = 0, rBr = 0;
+          while (mEnd < toks.length) {
+            const mt = toks[mEnd].text;
+            if (mt === '(') rP++; else if (mt === ')') rP--;
+            else if (mt === '[') rB++; else if (mt === ']') rB--;
+            else if (mt === '{') { if (rP === 0 && rB === 0 && rBr === 0) break; rBr++; }
+            else if (mt === '}') { if (rBr === 0) break; rBr--; }
+            else if (mt === ';' && rP === 0 && rB === 0 && rBr === 0) break;
+            mEnd++;
+          }
+        }
+        if (toks[mEnd]?.text !== '{') continue;
+        let dP = 0, dB = 0, dBr = 0, dA = 0;
+        for (let k = i + 1; k < closeP; k++) {
+          const tk = toks[k];
+          if (tk.text === '(') dP++; else if (tk.text === ')') dP--;
+          else if (tk.text === '[') dB++; else if (tk.text === ']') dB--;
+          else if (tk.text === '{') dBr++; else if (tk.text === '}') dBr--;
+          else if (tk.text === '<') dA++; else if (tk.text === '>') { if (dA > 0) dA--; }
+          else if (dP === 0 && dB === 0 && dBr === 0 && dA === 0 &&
+              tk.type === 'id' && tk.text === 'override' &&
+              (k === i + 1 || toks[k - 1].text === ',') &&
+              toks[k + 1]?.type === 'id' &&
+              (toks[k + 2]?.text === ':' || toks[k + 2]?.text === '?' || toks[k + 2]?.text === '=' || toks[k + 2]?.text === ',' || toks[k + 2]?.text === ')')) {
+            if (!edits.some(e => e.start <= tk.start && e.end >= tk.end)) {
+              edits.push({ start: tk.start, end: toks[k + 1].start, text: '' });
+            }
           }
         }
       }
@@ -6067,6 +6099,13 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
             (toks[i + 2]?.text === '(' || (toks[i + 1]?.text === '#' && toks[i + 3]?.text === '('))) {
           edits.push({ start: t.start, end: t.end, text: '        ' });
         } else if (t.type === 'id' && t.text === 'declare' && toks[i + 1]?.text === '#') {
+          const DECL_LEAD_MODS = new Set(['static', 'public', 'private', 'protected', 'readonly', 'abstract', 'override', 'accessor', 'async']);
+          let startIdx = i;
+          while (startIdx > 0 && toks[startIdx - 1].type === 'id' && DECL_LEAD_MODS.has(toks[startIdx - 1].text) &&
+              !hasNewlineBetween(source, toks[startIdx - 1].end, toks[startIdx].start)) {
+            startIdx--;
+          }
+          const memberStart = toks[startIdx].start;
           let k = i + 2;
           let dP = 0, dB = 0, dBr = 0, dA = 0;
           while (k < toks.length && !(dP === 0 && dB === 0 && dBr === 0 && dA === 0 && (toks[k].text === ';' || toks[k].text === '}'))) {
@@ -6075,7 +6114,7 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
                 ![':', '|', '&', '=', ',', '<', '(', '[', '{', '=>', '?'].includes(toks[k - 1].text) &&
                 !['|', '&', '?', ':', '=>', 'extends'].includes(toks[k].text)) {
               const endOff = toks[k - 1].end;
-              edits.push({ start: t.start, end: endOff, text: source.slice(t.start, endOff).replace(/[^\r\n]/g, ' ') });
+              edits.push({ start: memberStart, end: endOff, text: source.slice(memberStart, endOff).replace(/[^\r\n]/g, ' ') });
               i = k - 1;
               k = -1;
               break;
@@ -6092,7 +6131,7 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
           }
           if (k >= 0 && k < toks.length) {
             const endOff = toks[k].text === ';' ? toks[k].end : toks[k - 1].end;
-            edits.push({ start: t.start, end: endOff, text: source.slice(t.start, endOff).replace(/[^\r\n]/g, ' ') });
+            edits.push({ start: memberStart, end: endOff, text: source.slice(memberStart, endOff).replace(/[^\r\n]/g, ' ') });
             i = k;
           }
         }

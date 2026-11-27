@@ -3636,6 +3636,14 @@ test('F184 official spec suite push: Test262 99.98%, TS compiler/conformance 98.
     ['r57-bad-ambient-import-dot.tsx', 'declare module "m" { declare import X = X.; }\nexport const v = <div />;\n'],
     ['r57-bad-enum-tpl-leading-zero.ts', 'enum E { A = `1${08}3` }\n'],
     ['r57-bad-enum-esc-digit.tsx', 'enum E { \\u0030 = 2 }\nexport const v = <div />;\n'],
+    // Review Round 57 follow-up (Round 2) negative rejections:
+    ['r57r2-bad-ternary-override.ts', 'class C { constructor(public x: number) {} }\ntrue ? foo(override x) : 0;\n'],
+    ['r57r2-bad-ternary-override.tsx', 'class C { constructor(public x: number) {} }\nexport const v = <div />;\ntrue ? foo(override x) : 0;\n'],
+    ['r57r2-bad-block-override.ts', 'class C { constructor(public x: number) {} }\nfoo(override x)\n{}\n'],
+    ['r57r2-bad-enum-tpl-sep-exp.ts', 'enum E { A = `1${1e_2}3` }\n'],
+    ['r57r2-bad-enum-tpl-sep-dbl.tsx', 'enum E { A = `1${1__2}3` }\nexport const v = <div />;\n'],
+    ['r57r2-bad-ambient-import-true.ts', 'declare module "m" { declare import X = true; }\nexport const x = 1;\n'],
+    ['r57r2-bad-ambient-req-nosep.ts', 'declare module "m" { declare import X = require("m")const x: number; }\nexport const x = 1;\n'],
   ]) {
     const tm = ts.transpileModule(source, {
       fileName: file,
@@ -3656,6 +3664,14 @@ test('F184 official spec suite push: Test262 99.98%, TS compiler/conformance 98.
     ['r57-declare-priv-next-field.ts', 'class C { declare #x: number\ny = 1; }\n'],
     ['r57-ctor-tagged-tpl-nl.ts', 'class C { constructor(public x: number) { "abc"\n`tpl`; } }\n'],
     ['r57-ctor-prologue-inc-nl.ts', 'class C { constructor(public x: number) { "abc"\n++x; } }\n'],
+    // Review Round 57 follow-up (Round 2) AST/runtime preservation regressions:
+    ['r57r2-static-declare-priv.ts', 'class C { static declare #x: number\ny = 1; }\n'],
+    ['r57r2-enum-dollar-merged.ts', 'enum E$ { A = E$.X }\nenum E$ { X = 4 }\n'],
+    ['r57r2-enum-comment-merged.ts', 'enum /*c*/ E { A = E.X }\nenum\nE { X = 4 }\n'],
+    ['r57r2-enum-forward-merged-other.ts', 'enum F {}\nenum E { A = F.X }\nenum F { X = "s" }\n'],
+    ['r57r2-void-nl-super.ts', 'class B {} class D extends B { constructor(public x: number) { void\nsuper(); } }\n'],
+    ['r57r2-plus-nl-super.ts', 'class B {} class D extends B { constructor(public x: number) { 0 +\nsuper(); } }\n'],
+    ['r57r2-enum-literal-merged-name.ts', 'enum E { __MERGED__ = 1 }\n'],
   ]) {
     sameAsTypeScript(source, file);
   }
