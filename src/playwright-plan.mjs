@@ -14,12 +14,16 @@ export const HIT_LIMIT_RE = /Mutation hit limit reached/;
 // Normalize Playwright per-test worker records into the shape consumed by `standard-plan.mjs` and `playwright-bridge.mjs`.
 export function indexPlaywrightBaseline(records, passedTests, comparisonSubjects = [], timingByTest = new Map()) {
   const serverStaticIds = new Set();
+  const loadedFiles = new Set();
   let serverCooperating = false;
   let anySwitchActivity = false;
   const normalized = [];
 
   for (const record of records ?? []) {
     if (record.serverCooperating) serverCooperating = true;
+    for (const file of record.loadedFiles ?? []) {
+      if (typeof file === 'string') loadedFiles.add(file);
+    }
     for (const [id, count] of Object.entries(record.serverBootStatic ?? {})) {
       if (count > 0) {
         serverStaticIds.add(id);
@@ -29,7 +33,8 @@ export function indexPlaywrightBaseline(records, passedTests, comparisonSubjects
     const hasPerTest = Object.keys(record.coverage?.perTest ?? {}).length > 0;
     const hasStatic = Object.keys(record.coverage?.static ?? {}).length > 0;
     const hasComparisons = (record.loadedComparisons?.length ?? 0) > 0;
-    if (hasPerTest || hasStatic || hasComparisons) anySwitchActivity = true;
+    const hasFiles = (record.loadedFiles?.length ?? 0) > 0;
+    if (hasPerTest || hasStatic || hasComparisons || hasFiles) anySwitchActivity = true;
 
     normalized.push({
       modules: [[record.project ?? '', record.file ?? '']],
@@ -41,6 +46,7 @@ export function indexPlaywrightBaseline(records, passedTests, comparisonSubjects
       hits: record.hitCount ?? 0,
       comparisons: record.comparisons ?? {},
       loadedComparisons: record.loadedComparisons ?? [],
+      loadedFiles: record.loadedFiles ?? [],
     });
   }
 
@@ -67,6 +73,7 @@ export function indexPlaywrightBaseline(records, passedTests, comparisonSubjects
   return {
     normalized,
     serverStaticIds,
+    loadedFiles,
     serverCooperating,
     anySwitchActivity,
     coverageOf,
@@ -76,6 +83,17 @@ export function indexPlaywrightBaseline(records, passedTests, comparisonSubjects
     trace,
     overflowSites,
   };
+}
+
+export function perTestSwitchHitsMap(records, switchId) {
+  const byTest = new Map();
+  for (const record of records ?? []) {
+    for (const [testId, counts] of Object.entries(record.coverage?.perTest ?? {})) {
+      const hits = Number(counts?.[switchId] ?? 0);
+      if (hits > 0) byTest.set(testId, (byTest.get(testId) ?? 0) + hits);
+    }
+  }
+  return byTest;
 }
 
 export function sumSwitchHitsForTests(records, switchId, expectedTestIds) {
@@ -99,19 +117,27 @@ export function hasHitLimitFailure(pass) {
   return false;
 }
 
-export function verifyPlaywrightControl(controlPass, expectedTestIds, switchId, expectedHits) {
+// Verify post-trial control pass: every expected test must pass AND each individual test's switch hit count
+// must match its baseline `perTestHits` (preventing cross-test hit redistribution like [1, 1] -> [2, 0]).
+export function verifyPlaywrightControl(controlPass, expectedTestIds, switchId, baselinePerTestHits) {
   if (!controlPass || controlPass.status !== 'passed') return false;
   if (controlPass.errors?.length || controlPass.timedOut || controlPass.unstable) return false;
   const passedIds = new Set(controlPass.tests.filter(t => t.status === 'passed').map(t => t.id));
   if (!expectedTestIds.every(id => passedIds.has(id))) return false;
-  const controlHits = sumSwitchHitsForTests(controlPass.records, switchId, expectedTestIds);
-  return controlHits === expectedHits;
+  const actualByTest = perTestSwitchHitsMap(controlPass.records, switchId);
+  for (const testId of expectedTestIds) {
+    const expected = baselinePerTestHits instanceof Map
+      ? (baselinePerTestHits.get(testId) ?? 0)
+      : Number(baselinePerTestHits?.[testId] ?? 0);
+    const actual = actualByTest.get(testId) ?? 0;
+    if (actual !== expected) return false;
+  }
+  return true;
 }
 
 // Classify a warm Playwright trial combined with its mandatory post-trial control pass.
 export function classifyPlaywrightWarmTrial({ activeId, plan, trialPass, controlPass, executedTestIds, passedTests }) {
-  const expectedHits = executedTestIds.reduce((sum, testId) => sum + (plan.perTestHits.get(testId) ?? 0), 0);
-  const controlOk = verifyPlaywrightControl(controlPass, executedTestIds, activeId, expectedHits);
+  const controlOk = verifyPlaywrightControl(controlPass, executedTestIds, activeId, plan.perTestHits);
 
   if (!controlOk) {
     return {
@@ -332,6 +358,21 @@ export function simulatePlaywrightMatrixRow({ realm, ruleClass, testBehavior, ex
       deterministicStable: true,
     });
     const indexed = indexPlaywrightBaseline(records, passedTests, prepProbe.subjects ?? []);
+    // Build independent switch coverage per comparison key (`${file}:${at}`) from `__tmtCover` hits, matching session behavior.
+    const shiftSwitchesByKey = new Map(
+      prepared.filter(m => m.parametric).map(m => [`${m.parametric.file}:${m.parametric.at}`, m.id]),
+    );
+    const deterministicCoverageByKey = {};
+    for (const [cmpKey, switchId] of shiftSwitchesByKey) {
+      const mPlan = indexed.planMutant(switchId);
+      const perKey = {};
+      for (const [tId, cnt] of mPlan.perTestHits) {
+        const tObj = passedTests.get(tId);
+        if (tObj) perKey[JSON.stringify([tObj.project, tObj.file, tObj.id])] = cnt;
+      }
+      deterministicCoverageByKey[cmpKey] = perKey;
+    }
+
     const focusedPrep = prepareAnalysisFromTrace(dir, [relFile], {
       runner: 'playwright',
       deterministic: executionMode === 'DeterministicReplay',
@@ -340,6 +381,7 @@ export function simulatePlaywrightMatrixRow({ realm, ruleClass, testBehavior, ex
       trace: indexed.trace,
       overflowSites: indexed.overflowSites,
       deterministicStable: true,
+      deterministicCoverageByKey,
     });
 
     // Pick the primary mutant under test for `ruleClass`.
@@ -380,7 +422,25 @@ export function simulatePlaywrightMatrixRow({ realm, ruleClass, testBehavior, ex
       const desiredStatus = testBehavior === 'KillsMutant' ? 'killed' : 'survived';
       if (executionMode === 'IsolatedTrials' || plan.serverStatic) {
         isolatedRuns++;
-        trialStatus = desiredStatus;
+        const shiftVal = trial.adjustment ?? (trial.rule === 'comparison-threshold/v1' ? Number(trial.replacement) - 5000 : 0);
+        const isoEval = evalInRealm({
+          phase: 'trial',
+          currentTestId: 'pw-1',
+          activeMutant: activeSwitchId,
+          shift: targetRule === 'comparison-boundary/v1' ? 0 : shiftVal,
+          callArgs: callInputs(),
+        });
+        const assessedIso = assessIsolatedPlaywrightPass({
+          isoPass: {
+            status: desiredStatus === 'killed' ? 'failed' : 'passed',
+            totalHits: isoEval.ns.hitCount,
+            tests: [{ ...test1, status: desiredStatus === 'killed' ? 'failed' : 'passed' }],
+          },
+          plan,
+          expectedTestIds: ['pw-1'],
+          passedTests,
+        });
+        trialStatus = assessedIso.status;
       } else {
         warmRuns++;
         const shiftVal = trial.adjustment ?? (trial.rule === 'comparison-threshold/v1' ? Number(trial.replacement) - 5000 : 0);
@@ -459,6 +519,26 @@ export function simulatePlaywrightMatrixRow({ realm, ruleClass, testBehavior, ex
 
     if (executionMode === 'IsolatedTrials' || plan.serverStatic) {
       isolatedRuns++;
+      const isoBoot = plan.serverStatic
+        ? evalInRealm({ phase: 'trial', currentTestId: undefined, activeMutant: targetMutant.id, callArgs: [] })
+        : { ns: { hitCount: 0 } };
+      const isoReq = evalInRealm({
+        phase: 'trial',
+        currentTestId: 'pw-1',
+        activeMutant: targetMutant.id,
+        callArgs: callInputs(),
+      });
+      const assessedIso = assessIsolatedPlaywrightPass({
+        isoPass: {
+          status: desiredStatus === 'killed' ? 'failed' : 'passed',
+          totalHits: isoBoot.ns.hitCount + isoReq.ns.hitCount,
+          tests: [{ ...test1, status: desiredStatus === 'killed' ? 'failed' : 'passed' }],
+        },
+        plan,
+        expectedTestIds: ['pw-1'],
+        passedTests,
+      });
+      finalStatus = assessedIso.status;
     } else {
       warmRuns++;
       const runTrial = evalInRealm({
@@ -523,6 +603,35 @@ export function simulatePlaywrightMatrixRow({ realm, ruleClass, testBehavior, ex
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+export function assessIsolatedPlaywrightPass({ isoPass, plan, expectedTestIds, passedTests }) {
+  if (hasHitLimitFailure(isoPass) || (isoPass.totalHits ?? 0) > plan.hitLimit || HIT_LIMIT_RE.test(isoPass.output ?? '')) {
+    return { status: 'timeout', statusReason: 'Mutation hit limit reached' };
+  }
+  if (isoPass.status === 'timeout' || isoPass.timedOut) {
+    return { status: 'timeout', statusReason: isoPass.statusReason ?? 'Playwright test timeout' };
+  }
+  const failed = (isoPass.tests ?? []).filter(t => t.status === 'failed' && passedTests.has(t.id));
+  const haveHits = plan.serverStatic || (isoPass.totalHits ?? 0) > 0;
+  if (haveHits && failed.length > 0 && !isoPass.unstable && !isoPass.errors?.length) {
+    return {
+      status: 'killed',
+      tests: failed.map(({ id, project, file, name }) => ({ id, project, file, name })),
+    };
+  }
+  const actualPassed = new Set((isoPass.tests ?? []).filter(t => t.status === 'passed').map(t => t.id));
+  if (haveHits && isoPass.status === 'passed' && !isoPass.errors?.length && !failed.length &&
+      expectedTestIds.length > 0 && expectedTestIds.every(id => actualPassed.has(id))) {
+    return { status: 'survived' };
+  }
+  if (isoPass.errors?.length) {
+    return { status: 'error', statusReason: isoPass.errors.join('\n') };
+  }
+  return {
+    status: 'unstable',
+    statusReason: 'Playwright did not observe the active mutation with the expected test inventory',
+  };
 }
 
 function mkdirSyncSafe(path) {

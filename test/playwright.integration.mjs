@@ -52,6 +52,16 @@ test('isolated Playwright rewrites reveal an age boundary and a pending submissi
     assert.ok(full.mutants.every(trial => trial.run.tests[0].browser === 'chromium'));
     assert.notEqual(boundary.run.attempt, dropped.run.attempt);
 
+    // Also verify `--spec spec.json` WITHOUT `--audit` (warm session path) confirms both witnesses cleanly.
+    const sessionSpec = JSON.parse(exec(process.execPath, [
+      'bin/tmt.mjs', 'analyze', root, 'src/eligibility.tsx', 'src/save.tsx', '--runner', 'playwright', '--spec', 'spec.json',
+    ]));
+    assert.equal(sessionSpec.operatorExecution, 'session');
+    assert.deepEqual(sessionSpec.diagnostics.map(gap => gap.verification), [
+      { baselineWithWitness: 'passed', rewriteWithWitness: 'failed' },
+      { baselineWithWitness: 'passed', rewriteWithWitness: 'failed' },
+    ]);
+
     const scoped = analyzeAudit(root, '--since', 'HEAD');
     assert.equal(scoped.mutants.length, 1);
     assert.equal(scoped.mutants[0].site, boundary.site);
@@ -201,9 +211,12 @@ test('checks stock margin with varying reservations', async ({ page }) => {
   await expect(page.locator('#stock')).toHaveText('SHORT');
 });
 
-test('renders browser form state without pinning subtotal value', async ({ page }) => {
-  await page.goto('/checkout?valid=0');
-  await expect(page.locator('#save')).toBeDisabled();
+test('renders browser form state without pinning subtotal value', async ({ page, context }) => {
+  // Also open and explicitly close an extra page mid-test to verify page.close() flushes browser observations before closing.
+  const popup = await context.newPage();
+  await popup.goto('/checkout?valid=0');
+  await expect(popup.locator('#save')).toBeDisabled();
+  await popup.close();
   await page.goto('/checkout?valid=1');
   await expect(page.locator('#save')).toBeEnabled();
   await expect(page.locator('#ready')).toHaveText('ready');
@@ -288,6 +301,37 @@ test('acquires and releases exclusive server lock', async ({ page }) => {
       ? readFileSync(bootLog, 'utf8').trim().split(/\r?\n/).filter(Boolean).map(Number)
       : [];
     for (const pid of lockBoots) assert.equal(isPidAlive(pid), false, `isolated server pid ${pid} should be terminated`);
+
+    // Part D: `--isolated-trials` activates browser-only switches cleanly and kills `!valid` drop.
+    const isoClientReport = JSON.parse(exec(process.execPath, [
+      'bin/tmt.mjs', 'analyze', root, 'src/client.ts', '--runner', 'playwright', '--isolated-trials', '--test', 'e2e/shop.spec.ts',
+    ]));
+    assert.equal(isoClientReport.evaluation, 'evaluated');
+    assert.equal(isoClientReport.trials.inWorker, 0);
+    assert.ok(isoClientReport.trials.isolated >= 3);
+    assert.ok(
+      isoClientReport.mutants.some(m => m.rule === 'ignored-operand/v1' && m.status === 'killed'),
+      JSON.stringify(isoClientReport.mutants),
+    );
+
+    // Part E: Failed baseline tears down `webServer` + `browserServer` cleanly with zero orphan processes.
+    writeFileSync(join(root, 'e2e/failing.spec.ts'), `
+import { expect, test } from '@playwright/test';
+test('fails during baseline', async ({ page }) => {
+  await page.goto('/shipping?yen=4800');
+  await expect(page.locator('#badge')).toHaveText('WRONG');
+});
+`);
+    rmSync(bootLog, { force: true });
+    const failedRun = spawnSync(process.execPath, [
+      'bin/tmt.mjs', 'analyze', root, 'src/shipping.ts', '--runner', 'playwright', '--test', 'e2e/failing.spec.ts',
+    ], { encoding: 'utf8', timeout: 60_000, env: { ...process.env, TMT_TEST_BOOT_LOG: bootLog } });
+    assert.equal(failedRun.status, 1);
+    const failedBoots = existsSync(bootLog)
+      ? readFileSync(bootLog, 'utf8').trim().split(/\r?\n/).filter(Boolean).map(Number)
+      : [];
+    assert.equal(failedBoots.length, 1);
+    for (const pid of failedBoots) assert.equal(isPidAlive(pid), false, `failed-baseline server pid ${pid} should be terminated`);
   } finally {
     rmSync(root, { recursive: true, force: true });
     rmSync(bootLog, { force: true });

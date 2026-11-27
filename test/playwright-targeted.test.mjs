@@ -242,3 +242,150 @@ test('PICT playwright-targeted matrix satisfies every cross-realm, synthesis, an
     }
   }
 });
+
+test('Round 1 review regressions: per-test control check, isolated inventory/hit guard, independent deterministic coverage, BigInt extrema, and redirect block', async () => {
+  const { createServer } = await import('node:http');
+  const { mkdtempSync, rmSync, writeFileSync, mkdirSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { assessIsolatedPlaywrightPass, verifyPlaywrightControl } = await import('../src/playwright-plan.mjs');
+  const { mergeRealmSnapshots, createEmptyBucket } = await import('../src/playwright-bridge.mjs');
+  const { harvestOrigins } = await import('../src/playwright-worker-preload.mjs');
+  const { prepareAnalysisFromTrace } = await import('../src/analysis.mjs');
+
+  // 1. Per-test control check rejects [1, 1] -> [2, 0] hit redistribution even when total hits (2) match.
+  const baselinePerTest = new Map([['tA', 1], ['tB', 1]]);
+  const redistributedControl = {
+    status: 'passed',
+    tests: [{ id: 'tA', status: 'passed' }, { id: 'tB', status: 'passed' }],
+    records: [{ coverage: { perTest: { tA: { sw1: 2 }, tB: { sw1: 0 } } } }],
+  };
+  assert.equal(verifyPlaywrightControl(redistributedControl, ['tA', 'tB'], 'sw1', baselinePerTest), false);
+  const matchingControl = {
+    status: 'passed',
+    tests: [{ id: 'tA', status: 'passed' }, { id: 'tB', status: 'passed' }],
+    records: [{ coverage: { perTest: { tA: { sw1: 1 }, tB: { sw1: 1 } } } }],
+  };
+  assert.equal(verifyPlaywrightControl(matchingControl, ['tA', 'tB'], 'sw1', baselinePerTest), true);
+
+  // 2. Isolated pass rejects zero-hit pass and skipped reaching test (never misclassifying as `survived`).
+  const passedMap = new Map([
+    ['tA', { id: 'tA', project: 'chromium', file: 'e2e/a.spec.ts', name: 'A', status: 'passed' }],
+    ['tB', { id: 'tB', project: 'chromium', file: 'e2e/a.spec.ts', name: 'B', status: 'passed' }],
+  ]);
+  assert.equal(assessIsolatedPlaywrightPass({
+    isoPass: { status: 'passed', totalHits: 0, tests: [{ id: 'tA', status: 'passed' }] },
+    plan: { serverStatic: false, hitLimit: 100 },
+    expectedTestIds: ['tA'],
+    passedTests: passedMap,
+  }).status, 'unstable');
+  assert.equal(assessIsolatedPlaywrightPass({
+    isoPass: { status: 'passed', totalHits: 2, tests: [{ id: 'tA', status: 'skipped' }, { id: 'tB', status: 'passed' }] },
+    plan: { serverStatic: false, hitLimit: 100 },
+    expectedTestIds: ['tA', 'tB'],
+    passedTests: passedMap,
+  }).status, 'unstable');
+
+  // 3. Partial-reach `--deterministic` requires independent `__tmtCover` count agreement (never self-comparing trace).
+  const dir = mkdtempSync(join(tmpdir(), 'tmt-pw-det-'));
+  try {
+    mkdirSync(join(dir, 'src'), { recursive: true });
+    const srcText = 'export const check = (n: number) => n >= 18;\n';
+    writeFileSync(join(dir, 'src/a.ts'), srcText, 'utf8');
+    const opOffset = Buffer.from(srcText).indexOf('>=');
+    const probe = prepareAnalysisFromTrace(dir, ['src/a.ts'], { runner: 'playwright', deterministic: true }, {
+      baseline: { status: 'passed', tests: [...passedMap.values()] },
+      trace: [],
+      deterministicStable: true,
+    });
+    const siteId = probe.subjects[0].sites[0].id;
+    // Only `tA` has recorded trace rows (`tB` is another passing test), and independent switch coverage says `tA` had 2 hits (mismatch with 1 trace row!).
+    const mismatched = prepareAnalysisFromTrace(dir, ['src/a.ts'], { runner: 'playwright', deterministic: true }, {
+      baseline: { status: 'passed', tests: [...passedMap.values()] },
+      trace: [
+        { loaded: [siteId] },
+        { site: siteId, identity: { id: 'tA', project: 'chromium', file: 'e2e/a.spec.ts' }, operands: [20, 18], result: true, operator: '>=' },
+      ],
+      deterministicStable: true,
+      deterministicCoverageByKey: {
+        [`src/a.ts:${opOffset}`]: { [JSON.stringify(['chromium', 'e2e/a.spec.ts', 'tA'])]: 2 },
+      },
+    });
+    assert.equal(mismatched.skips.size, 0, 'mismatched independent switch count must forbid predicted skip');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+
+  // 4. BigInt exact difference preserves ordering near MAX_SAFE_INTEGER (`MAX_SAFE_INTEGER - (-2)` > `MAX_SAFE_INTEGER - (-1)`).
+  const source = Buffer.from('export const wide = (a: number, b: number) => a >= b;\n');
+  const switched = renderBuiltinSwitches(source, 'src/wide.ts', () => true, {
+    dialect: 'ts',
+    targeted: true,
+    shifts: true,
+    recordComparisons: true,
+    trackLoadedFile: true,
+    keep: targetedOrBoundary,
+  });
+  const js = ts.transpileModule(switched.output, {
+    compilerOptions: { target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.CommonJS },
+  }).outputText;
+  const ctx = vm.createContext({
+    exports: {},
+    [Symbol.for('targeted-mutation-ts/session')]: { phase: 'baseline' },
+    __stryker__: { currentTestId: 't1' },
+  });
+  vm.runInContext(js, ctx);
+  assert.deepEqual([...ctx.__stryker__.loadedFiles], ['src/wide.ts']);
+  assert.equal(Object.keys(ctx).includes('__stryker__'), true); // passed in initial sandbox object
+  for (let i = 0; i < 1024; i++) ctx.exports.wide(10, 5);
+  ctx.exports.wide(Number.MAX_SAFE_INTEGER, -1);
+  ctx.exports.wide(Number.MAX_SAFE_INTEGER, -2);
+  const wideSlot = Object.values(Object.values(ctx.__stryker__.comparisons)[0])[0];
+  assert.deepEqual([...wideSlot.extrema.maxTrue], [Number.MAX_SAFE_INTEGER, -2, true]);
+
+  const mergedBucket = createEmptyBucket();
+  mergeRealmSnapshots(mergedBucket, {
+    comparisons: {
+      'src/wide.ts:48': {
+        t1: {
+          rows: Array.from({ length: 1024 }, () => [10, 5, true]),
+          overflow: true,
+          extrema: { maxTrue: [Number.MAX_SAFE_INTEGER, -1, true] },
+        },
+      },
+    },
+  });
+  mergeRealmSnapshots(mergedBucket, {
+    comparisons: {
+      'src/wide.ts:48': {
+        t1: {
+          rows: [[Number.MAX_SAFE_INTEGER, -2, true]],
+          overflow: false,
+        },
+      },
+    },
+  });
+  assert.deepEqual(mergedBucket.comparisons['src/wide.ts:48'].t1.extrema.maxTrue, [Number.MAX_SAFE_INTEGER, -2, true]);
+
+  // 5. `harvestOrigins` blocks HTTP redirects (`redirect: 'error'`) so `x-tmt-token` is never sent to redirect target.
+  let leakedHeader = null;
+  const targetSrv = createServer((req, res) => {
+    leakedHeader = req.headers['x-tmt-token'] ?? null;
+    res.writeHead(200).end('target');
+  });
+  await new Promise(r => targetSrv.listen(0, '127.0.0.1', r));
+  const targetUrl = `http://127.0.0.1:${targetSrv.address().port}/capture`;
+  const redirectSrv = createServer((_req, res) => {
+    res.writeHead(302, { Location: targetUrl }).end();
+  });
+  await new Promise(r => redirectSrv.listen(0, '127.0.0.1', r));
+  const redirectOrigin = `http://127.0.0.1:${redirectSrv.address().port}`;
+  try {
+    const harvestRes = await harvestOrigins([redirectOrigin], 'secret-token-value');
+    assert.equal(harvestRes.serverCooperating, false);
+    assert.equal(leakedHeader, null, 'redirect target must never receive x-tmt-token');
+  } finally {
+    await new Promise(r => redirectSrv.close(r));
+    await new Promise(r => targetSrv.close(r));
+  }
+});

@@ -66,7 +66,7 @@ function sessionVerdicts(session, extras = []) {
 
 function carryBaseline(target, source) {
   if (source?.[baselineRunSymbol]) {
-    Object.defineProperty(target, baselineRunSymbol, { value: source[baselineRunSymbol], enumerable: false });
+    Object.defineProperty(target, baselineRunSymbol, { value: source[baselineRunSymbol], enumerable: false, configurable: true });
   }
   return target;
 }
@@ -115,21 +115,69 @@ async function besideSession(project, files, options, run, profile, stopsSession
   return { prepared, ended, extras: listed, ...await started };
 }
 
-function attachPlaywrightSpecWitnesses(prepared, baseline, diagnostics, allMutants) {
+function attachPlaywrightSpecWitnesses(prepared, diagnostics, allMutants) {
   const pwSpecs = prepared?.specification?.playwright;
-  if (!Array.isArray(pwSpecs) || !pwSpecs.length || !prepared?.attempt) return diagnostics;
-  const passedTest = baseline.tests.find(t => t.status === 'passed');
-  if (!passedTest) return diagnostics;
+  if (!Array.isArray(pwSpecs) || !pwSpecs.length || !prepared?.attempt) return { diagnostics, plainBaseline: null };
 
-  return diagnostics.map(gap => {
+  let plainBaseline = null;
+  const ensurePlainBaseline = () => {
+    if (!plainBaseline) plainBaseline = prepared.attempt({ isBaseline: true });
+    return plainBaseline;
+  };
+
+  // Ensure surviving mutants matched by `specification.playwright` that lacked an operand-level diagnostic
+  // (for example non-integer comparisons) still receive a `SURVIVED` witness diagnostic entry.
+  const diagnosedSites = new Set(diagnostics.map(gap => gap.site));
+  const seededDiagnostics = [...diagnostics];
+  for (const mutant of allMutants) {
+    const key = mutant.site ?? mutant.id;
+    if (mutant.status !== 'survived' || diagnosedSites.has(key)) continue;
+    const rule = mutant.rule ?? mutant.mutatorName;
+    const hasSpec = pwSpecs.some(entry =>
+      entry.file === mutant.location?.file &&
+      (entry.line === undefined || entry.line === mutant.location?.line) &&
+      entry.rule === rule &&
+      (entry.operator === undefined || mutant.operator === undefined || entry.operator === mutant.operator));
+    if (hasSpec) {
+      diagnosedSites.add(key);
+      seededDiagnostics.push({
+        kind: 'SURVIVED',
+        site: key,
+        location: mutant.location,
+        rule,
+        ...(mutant.operator ? { operator: mutant.operator } : {}),
+        mutations: [{ rule, edit: mutant.edit, replacement: mutant.replacement, evidence: mutant.evidence ?? 'reexecuted' }],
+      });
+    }
+  }
+
+  const out = seededDiagnostics.map(gap => {
     const mutant = allMutants.find(m => (m.site ?? m.id) === gap.site);
-    const rule = gap.rule ?? mutant?.rule ?? mutant?.mutatorName;
-    const match = pwSpecs.find(entry =>
-      entry.file === gap.location?.file &&
-      (entry.line === undefined || entry.line === gap.location?.line) &&
-      (entry.rule === rule ||
-        (entry.rule === 'jsx-disabled-drop-left/v1' && rule === 'ignored-operand/v1' && entry.operator === '||')));
+    const rule = gap.rule ?? mutant?.rule ?? mutant?.mutatorName ?? gap.mutations?.[0]?.rule;
+    const operator = gap.operator ?? mutant?.operator;
+    const match = pwSpecs.find(entry => {
+      if (entry.file !== gap.location?.file) return false;
+      if (entry.line !== undefined && entry.line !== gap.location?.line) return false;
+      if (entry.rule === rule) {
+        return entry.operator === undefined || operator === undefined || entry.operator === operator;
+      }
+      return entry.rule === 'jsx-disabled-drop-left/v1' &&
+        rule === 'ignored-operand/v1' &&
+        entry.operator === '||' &&
+        String(gap.mutations?.[0]?.replacement ?? mutant?.replacement ?? '').startsWith('(');
+    });
     if (!match?.witness || typeof match.requirement !== 'string') return gap;
+
+    const base = ensurePlainBaseline();
+    const passedTest = base.tests?.find(t => t.status === 'passed');
+    if (base.status !== 'passed' || !passedTest) {
+      return {
+        ...gap,
+        requirement: match.requirement,
+        suggestedTestFile: match.witness,
+        verification: { baselineWithWitness: 'unconfirmed', rewriteWithWitness: 'unconfirmed' },
+      };
+    }
 
     const witness = {
       content: match.witness,
@@ -152,7 +200,7 @@ function attachPlaywrightSpecWitnesses(prepared, baseline, diagnostics, allMutan
       const wit = run.tests?.filter(isWitness);
       const orig = run.tests?.filter(t => !isWitness(t));
       if (!wit?.length || orig.some(t => !['passed', 'skipped'].includes(t.status)) ||
-          verdict({ status: 'passed', tests: orig }, baseline) !== 'survived') return [];
+          verdict({ status: 'passed', tests: orig }, base) !== 'survived') return [];
       return wit;
     };
     const passed = checkWitness(origRun);
@@ -171,6 +219,7 @@ function attachPlaywrightSpecWitnesses(prepared, baseline, diagnostics, allMutan
       },
     };
   });
+  return { diagnostics: out, plainBaseline };
 }
 
 async function runPlaywrightTargetedSession(project, files, runOptions, run, profile, finalize) {
@@ -201,6 +250,7 @@ async function runPlaywrightTargetedSession(project, files, runOptions, run, pro
         trace: rows,
         overflowSites,
         deterministicStable: baseEvent.deterministicStable,
+        deterministicCoverageByKey: baseEvent.deterministicCoverageByKey,
       });
       extras = shiftTrials(prepared);
       return extras;
@@ -247,12 +297,18 @@ async function runPlaywrightTargetedSession(project, files, runOptions, run, pro
   const added = session.mutants.filter(mutant => !(mutant.operatorSwap &&
     boundaries.has(`${mutant.location.file}:${mutant.operatorSwap.join(':')}`)));
   const mergedMutants = [...focused.mutants, ...added.map(mutant => fromSession(mutant, profile))].sort(order);
-  const mergedDiagnostics = attachPlaywrightSpecWitnesses(
+  const { diagnostics: mergedDiagnostics, plainBaseline } = attachPlaywrightSpecWitnesses(
     prepared,
-    session.baselineSnapshot ?? prepared.baseline,
     suppressEnclosingDiagnostics([...(focused.diagnostics ?? []), ...(session.diagnostics ?? [])]),
     mergedMutants,
   );
+  if (plainBaseline?.status === 'passed') {
+    Object.defineProperty(focused, baselineRunSymbol, {
+      value: { status: plainBaseline.status, tests: plainBaseline.tests, plain: true },
+      enumerable: false,
+      configurable: true,
+    });
+  }
 
   return carryBaseline(finalize({
     ...focused,

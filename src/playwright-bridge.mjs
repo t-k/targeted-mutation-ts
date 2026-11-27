@@ -20,6 +20,7 @@ export function createEmptyBucket() {
     observed: {},
     comparisons: {},
     loadedComparisons: [],
+    loadedFiles: [],
   };
 }
 
@@ -31,24 +32,32 @@ export function snapshotAndResetNamespace(ns, { keepLoaded = true } = {}) {
     observed: ns.observed ?? {},
     comparisons: ns.comparisons ?? {},
     loadedComparisons: Array.isArray(ns.loadedComparisons) ? [...ns.loadedComparisons] : [],
+    loadedFiles: Array.isArray(ns.loadedFiles) ? [...ns.loadedFiles] : [],
   };
   ns.hitCount = 0;
   ns.mutantCoverage = { static: {}, perTest: {} };
   ns.observed = {};
   ns.comparisons = {};
-  if (!keepLoaded) ns.loadedComparisons = [];
+  if (!keepLoaded) {
+    ns.loadedComparisons = [];
+    ns.loadedFiles = [];
+  }
   return snapshot;
+}
+
+function exactDiff(pair) {
+  return BigInt(pair[0]) - BigInt(pair[1]);
 }
 
 function updateExtrema(ex, pair) {
   const [lhs, rhs, result] = pair;
-  const diff = lhs - rhs;
+  const diff = exactDiff(pair);
   if (result) {
-    if (!ex.minTrue || diff < ex.minTrue[0] - ex.minTrue[1]) ex.minTrue = [lhs, rhs, true];
-    if (!ex.maxTrue || diff > ex.maxTrue[0] - ex.maxTrue[1]) ex.maxTrue = [lhs, rhs, true];
+    if (!ex.minTrue || diff < exactDiff(ex.minTrue)) ex.minTrue = [lhs, rhs, true];
+    if (!ex.maxTrue || diff > exactDiff(ex.maxTrue)) ex.maxTrue = [lhs, rhs, true];
   } else {
-    if (!ex.minFalse || diff < ex.minFalse[0] - ex.minFalse[1]) ex.minFalse = [lhs, rhs, false];
-    if (!ex.maxFalse || diff > ex.maxFalse[0] - ex.maxFalse[1]) ex.maxFalse = [lhs, rhs, false];
+    if (!ex.minFalse || diff < exactDiff(ex.minFalse)) ex.minFalse = [lhs, rhs, false];
+    if (!ex.maxFalse || diff > exactDiff(ex.maxFalse)) ex.maxFalse = [lhs, rhs, false];
   }
 }
 
@@ -143,6 +152,16 @@ export function mergeRealmSnapshots(target, incoming, { defaultTestId } = {}) {
       if (typeof item === 'string' && !seen.has(item)) {
         seen.add(item);
         target.loadedComparisons.push(item);
+      }
+    }
+  }
+  if (Array.isArray(incoming.loadedFiles)) {
+    target.loadedFiles ??= [];
+    const seenFiles = new Set(target.loadedFiles);
+    for (const file of incoming.loadedFiles) {
+      if (typeof file === 'string' && !seenFiles.has(file)) {
+        seenFiles.add(file);
+        target.loadedFiles.push(file);
       }
     }
   }

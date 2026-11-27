@@ -575,7 +575,7 @@ function analyzePlaywright(root, subjects, report, options, specification) {
   }
 
   report.evaluation = 'evaluated';
-  Object.defineProperty(report, baselineRunSymbol, { value: { status: baseline.status, tests: baseline.tests, plain: true }, enumerable: false });
+  Object.defineProperty(report, baselineRunSymbol, { value: { status: baseline.status, tests: baseline.tests, plain: true }, enumerable: false, configurable: true });
   report.instrumented = { status: 'unavailable', reason: 'browser-observations-unavailable' };
   for (const subject of subjects) {
     for (const site of subject.sites) {
@@ -730,7 +730,7 @@ function analyzeNode(root, subjects, report, options) {
   }
   report.baseline = { status: 'passed', tests: baseline.tests.length };
   report.evaluation = 'evaluated';
-  Object.defineProperty(report, baselineRunSymbol, { value: { status: baseline.status, tests: baseline.tests, plain: true }, enumerable: false });
+  Object.defineProperty(report, baselineRunSymbol, { value: { status: baseline.status, tests: baseline.tests, plain: true }, enumerable: false, configurable: true });
   const entries = collectNodeSites(subjects, options);
   options.onProgress?.(`Baseline passed (${baseline.tests.length} tests). Running ${entries.length} mutant(s)...`);
   let done = 0;
@@ -774,7 +774,7 @@ export async function analyzeNodeAsync(project, files, options) {
   }
   report.baseline = { status: 'passed', tests: baseline.tests.length };
   report.evaluation = 'evaluated';
-  Object.defineProperty(report, baselineRunSymbol, { value: { status: baseline.status, tests: baseline.tests, plain: true }, enumerable: false });
+  Object.defineProperty(report, baselineRunSymbol, { value: { status: baseline.status, tests: baseline.tests, plain: true }, enumerable: false, configurable: true });
 
   const entries = collectNodeSites(subjects, options);
   const concurrency = options.concurrency ?? Math.max(1, Math.min(4, availableParallelism() - 1));
@@ -867,7 +867,7 @@ export function prepareAnalysis(project, files, options) {
   }
   report.baseline = { status: 'passed', tests: baseline.tests.length };
   if (plainBaseline) {
-    Object.defineProperty(report, baselineRunSymbol, { value: { status: plainBaseline.status, tests: plainBaseline.tests, plain: true }, enumerable: false });
+    Object.defineProperty(report, baselineRunSymbol, { value: { status: plainBaseline.status, tests: plainBaseline.tests, plain: true }, enumerable: false, configurable: true });
   }
 
   const traced = recorded?.status === 'passed' ? recorded : attempt({ tracing: true });
@@ -914,8 +914,14 @@ export function prepareAnalysisFromTrace(project, files, options, recordedBaseli
   Object.defineProperty(report, baselineRunSymbol, {
     value: { status: baseline.status, tests: baseline.tests, plain: false },
     enumerable: false,
+    configurable: true,
   });
-  if (!subjects.length) return { report };
+  const allScopedSubjects = selectScope(root, files, options).map(({ file }) => {
+    const input = readFileSync(inside(root, file));
+    return { file, input, digest: sha(input), sites: [] };
+  });
+  const attempt = sourceTrials(root, allScopedSubjects, options);
+  if (!subjects.length) return { report, attempt, specification: options.spec ? JSON.parse(readFileSync(inside(root, options.spec), 'utf8')) : {} };
 
   const specification = options.spec ? JSON.parse(readFileSync(inside(root, options.spec), 'utf8')) : {};
   const deterministicStable = recordedBaseline.deterministicStable;
@@ -938,17 +944,24 @@ export function prepareAnalysisFromTrace(project, files, options, recordedBaseli
   const overflowSites = recordedBaseline.overflowSites ?? new Set();
   const coverage = new Map();
   if (trace && options.deterministic && deterministicStable) {
-    for (const trial of trials) {
-      if (overflowSites.has(trial.site.id) || !trial.observation.complete) continue;
-      const counts = new Map();
-      for (const [testKey, list] of trial.observation.observed) counts.set(testKey, list.length);
-      coverage.set(trial.site.id, counts);
+    const byKey = recordedBaseline.deterministicCoverageByKey ?? {};
+    for (const subject of subjects) {
+      for (const site of subject.sites) {
+        if (overflowSites.has(site.id)) continue;
+        const at = (site.operatorEdit ?? site.edit)[0];
+        const rawCounts = byKey[`${subject.file}:${at}`];
+        if (!rawCounts || typeof rawCounts !== 'object') continue;
+        const counts = new Map();
+        for (const [testKey, hits] of Object.entries(rawCounts)) {
+          if (hits > 0) counts.set(testKey, Number(hits));
+        }
+        coverage.set(site.id, counts);
+      }
     }
   }
   const eligibleTrials = trials.map(trial =>
     overflowSites.has(trial.site.id) ? { ...trial, observation: { ...trial.observation, complete: false } } : trial);
   const skips = leanSkips(eligibleTrials, baseline, !!(options.deterministic && deterministicStable), coverage);
-  const attempt = sourceTrials(root, subjects, options);
   return { root, report, options, attempt, baseline, traced: { status: 'passed', trace }, trace, trials, skips, subjects, specification };
 }
 

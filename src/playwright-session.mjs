@@ -5,12 +5,12 @@ import { dirname, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { comparisonRecordsToTrace, writeAtomicJson } from './playwright-bridge.mjs';
 import {
+  assessIsolatedPlaywrightPass,
   classifyPlaywrightWarmTrial,
   effectsFromPlaywrightRecords,
-  hasHitLimitFailure,
   indexPlaywrightBaseline,
 } from './playwright-plan.mjs';
-import { createPlaywrightConfigWrapper, runPlaywright, testFilters } from './playwright.mjs';
+import { createPlaywrightConfigWrapper, testFilters } from './playwright.mjs';
 import { sampleSettled } from './standard-plan.mjs';
 import { sameObservations } from './trace-buffer.mjs';
 import { failedTests } from './vitest-reporter.mjs';
@@ -25,6 +25,8 @@ const {
   config,
   projects = [],
   tests = [],
+  subjectFiles = [],
+  pidsFile,
   output,
   temporary,
   awaitsExtras = false,
@@ -75,11 +77,38 @@ function escapeLocationPattern(relFile) {
   return String(relFile).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function recordManagedPid(kind, pid) {
+  if (!pidsFile || !Number.isInteger(pid) || pid <= 1) return;
+  try {
+    appendFileSync(pidsFile, JSON.stringify({ kind, pid }) + '\n', 'utf8');
+  } catch {}
+}
+
 let exitStatus = 1;
 let runner = null;
 let browserServer = null;
+let cleaningUp = false;
 
-try {
+async function cleanupResources() {
+  if (cleaningUp) return;
+  cleaningUp = true;
+  if (runner) {
+    await Promise.race([runner.stopTests().catch(() => {}), new Promise(r => setTimeout(r, 2_000))]);
+    await Promise.race([runner.runGlobalTeardown().catch(() => {}), new Promise(r => setTimeout(r, 5_000))]);
+    await Promise.race([runner.closeGracefully?.().catch?.(() => {}), new Promise(r => setTimeout(r, 2_000))]);
+  }
+  if (browserServer) {
+    await Promise.race([browserServer.close().catch(() => {}), new Promise(r => setTimeout(r, 3_000))]);
+  }
+}
+
+for (const sig of ['SIGINT', 'SIGTERM']) {
+  process.once(sig, () => {
+    cleanupResources().finally(() => process.exit(124));
+  });
+}
+
+async function runSession() {
   const trialFile = resolve(temporary, 'pw-trial.json');
   const stateFile = resolve(temporary, 'pw-state.json');
   const recordsFile = resolve(temporary, 'pw-records.jsonl');
@@ -96,6 +125,7 @@ try {
   process.env.TMT_PW_RECORDS_FILE = recordsFile;
   process.env.TMT_PW_SPOOL_DIR = spoolDir;
   process.env.TMT_PW_ORIGINS_FILE = originsFile;
+  if (pidsFile) process.env.TMT_PW_PIDS_FILE = pidsFile;
   process.env.TMT_PW_TOKEN = token;
   const baseNodeOptions = process.env.NODE_OPTIONS ?? '';
   if (!baseNodeOptions.includes(workerPreloadUrl)) {
@@ -106,6 +136,7 @@ try {
     TMT_WORKSPACE: workspace,
     TMT_PW_STATE_FILE: stateFile,
     TMT_PW_SPOOL_DIR: spoolDir,
+    ...(pidsFile ? { TMT_PW_PIDS_FILE: pidsFile } : {}),
     TMT_PW_TOKEN: token,
   };
 
@@ -118,7 +149,8 @@ try {
     });
   } catch (configErr) {
     record({ baseline: { status: 'error', output: configErr.message, errors: [configErr.message] } });
-    process.exit(0);
+    exitStatus = 0;
+    return;
   }
 
   const pwPkgPath = runnerPackage(workspace, 'playwright');
@@ -135,7 +167,8 @@ try {
   }
   if (!TestRunner) {
     record({ unsupportedSession: 'playwright-runner-api-unavailable' });
-    process.exit(0);
+    exitStatus = 0;
+    return;
   }
 
   runner = new TestRunner(
@@ -149,7 +182,8 @@ try {
     loadedConfig = await runner.loadConfig();
   } catch (loadErr) {
     record({ baseline: { status: 'error', output: loadErr.message, errors: [loadErr.message] } });
-    process.exit(0);
+    exitStatus = 0;
+    return;
   }
 
   const origins = existsSync(originsFile) ? JSON.parse(readFileSync(originsFile, 'utf8')) : [];
@@ -163,7 +197,6 @@ try {
     projectBrowserMap.set(name, bName);
   }
 
-  // Launch a warm headless BrowserServer when all selected projects share one standard browser without custom launch/channel options.
   const distinctBrowsers = new Set(activeProjects.map(proj => {
     const pObj = proj.project ?? proj;
     return pObj.metadata?.tmtBrowser ?? pObj.use?.browserName ?? pObj.use?.defaultBrowserType ?? 'chromium';
@@ -178,6 +211,7 @@ try {
     if (['chromium', 'firefox', 'webkit'].includes(singleBrowser) && typeof playwrightLib?.[singleBrowser]?.launchServer === 'function') {
       try {
         browserServer = await playwrightLib[singleBrowser].launchServer({ headless: true });
+        recordManagedPid('browserServer', browserServer.process?.()?.pid);
         connectWsEndpoint = browserServer.wsEndpoint();
       } catch {
         browserServer = null;
@@ -192,7 +226,7 @@ try {
     writeAtomicJson(stateFile, { seq: stateSeq, phase, currentTestId: undefined, activeMutant, shift, hitLimit });
   };
 
-  setSessionMode({ phase: 'baseline' });
+  setSessionMode({ phase: 'boot' });
 
   const collectSetupReporter = () => {
     const setupErrors = [];
@@ -218,13 +252,27 @@ try {
     };
   };
 
-  const startWarmServer = async () => {
+  let serverRunning = false;
+  const startManagedServer = async () => {
     const collector = collectSetupReporter();
     const res = await runner.runGlobalSetup([collector.reporter]);
+    serverRunning = res.status === 'passed';
     return { status: res.status, errors: collector.setupErrors, fileErrors: collector.setupFileErrors, output: collector.getOutput() };
   };
 
-  const initialSetup = await startWarmServer();
+  const stopManagedServer = async () => {
+    if (!serverRunning) return true;
+    try {
+      const res = await runner.runGlobalTeardown();
+      if (res?.status && res.status !== 'passed') return false;
+      serverRunning = false;
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  const initialSetup = await startManagedServer();
   if (initialSetup.status !== 'passed') {
     const message = initialSetup.errors[0] ?? 'Playwright webServer / globalSetup failed to start';
     record({
@@ -235,7 +283,8 @@ try {
         output: initialSetup.output || message,
       },
     });
-    process.exit(0);
+    exitStatus = 0;
+    return;
   }
 
   const initialLocations = testFilters(workspace, tests);
@@ -263,6 +312,7 @@ try {
       },
       onError(error) {
         const msg = String(error?.message ?? error);
+        if (/^Testing stopped early after \d+ maximum allowed failures\.$/.test(msg.trim())) return;
         errors.push(msg);
         if (error?.location?.file) {
           fileErrors.push({ file: relative(workspace, error.location.file), message: msg });
@@ -360,7 +410,6 @@ try {
     };
   };
 
-  // Run baseline pass.
   const baselineStartedAt = Date.now();
   const baselinePass = await executePass({
     phase: 'baseline',
@@ -381,17 +430,18 @@ try {
         failedTests: failedTests(baselinePass),
       },
     });
-    process.exit(0);
+    exitStatus = 0;
+    return;
   }
 
-  // Verify explicit `--test` file inventory matches collected files, matching Vitest/Playwright selection safety.
   if (tests.length) {
     const expectedFiles = new Set(tests.map(f => relative(workspace, resolve(workspace, f))));
     const actualFiles = new Set(baselinePass.files);
     if ([...expectedFiles].some(f => !actualFiles.has(f)) || actualFiles.size !== expectedFiles.size) {
       const msg = 'Playwright test selection mismatch';
       record({ baseline: { status: 'error', files: baselinePass.files, errors: [msg], output: msg } });
-      process.exit(0);
+      exitStatus = 0;
+      return;
     }
   }
 
@@ -399,13 +449,22 @@ try {
   const timingByTest = new Map(baselinePass.tests.map(t => [t.id, t.duration ?? 0]));
   const indexed = indexPlaywrightBaseline(baselinePass.records, passedTests, [], timingByTest);
 
-  // If neither the server preload cooperated nor any browser page executed switched code, fall back cleanly to source-rewrite.
+  // Soundness gate: if `webServer` is NOT a cooperating Node server (`!indexed.serverCooperating`),
+  // then EVERY instrumented subject file must have been observed loading in the browser; otherwise
+  // server-side code could execute unobserved on the non-Node server and be misclassified as `unreached`.
   if (!indexed.anySwitchActivity && mutants.length > 0) {
     record({ unsupportedSession: 'no-runtime-switch-observations' });
-    process.exit(0);
+    exitStatus = 0;
+    return;
+  }
+  if (!indexed.serverCooperating && subjectFiles.some(file => !indexed.loadedFiles.has(file))) {
+    record({ unsupportedSession: 'non-cooperating-server-with-unloaded-files' });
+    exitStatus = 0;
+    return;
   }
 
   let deterministicStable;
+  let deterministicCoverageByKey;
   if (deterministic) {
     const replayPass = await executePass({
       phase: 'baseline',
@@ -416,9 +475,22 @@ try {
       const replayIndexed = indexPlaywrightBaseline(replayPass.records, passedTests, [], timingByTest);
       const t1 = comparisonRecordsToTrace(indexed.normalized, passedTests, []);
       const t2 = comparisonRecordsToTrace(replayIndexed.normalized, passedTests, []);
-      // Compare raw comparison records per test and site in deterministic order.
       deterministicStable = JSON.stringify(indexed.normalized.map(r => r.comparisons)) ===
         JSON.stringify(replayIndexed.normalized.map(r => r.comparisons)) && sameObservations(t1.rows, t2.rows);
+      if (deterministicStable) {
+        // Record independent `__tmtCover` per-test switch hits from the 2nd replay pass for `matchesFocusedCoverage`.
+        deterministicCoverageByKey = {};
+        for (const [cmpKey, switchId] of shiftSwitches) {
+          const replayPlan = replayIndexed.planMutant(switchId);
+          if (replayPlan.serverStatic || replayPlan.staticActivation) continue;
+          const byTestIdentity = {};
+          for (const [tId, cnt] of replayPlan.perTestHits) {
+            const tObj = passedTests.get(tId);
+            if (tObj) byTestIdentity[JSON.stringify([tObj.project, tObj.file, tObj.id])] = cnt;
+          }
+          deterministicCoverageByKey[cmpKey] = byTestIdentity;
+        }
+      }
     } else {
       deterministicStable = false;
     }
@@ -458,6 +530,7 @@ try {
       loadedComparisons: r.loadedComparisons,
     })),
     ...(deterministicStable !== undefined ? { deterministicStable } : {}),
+    ...(deterministicCoverageByKey ? { deterministicCoverageByKey } : {}),
   });
 
   const pending = [];
@@ -492,92 +565,74 @@ try {
   const MAX_SERVER_RESTARTS = 4;
   const totals = { inWorker: 0, isolated: 0, sampled: 0, mismatches: [] };
 
-  // Run an isolated fresh webServer + Playwright pass for server-static mutants, control-differs fallbacks,
-  // `--isolated-trials`, or `--verify-trials`.
+  // Run an isolated trial with a freshly booted webServer (activating the mutant BEFORE webServer boot so
+  // `serverStatic` bindings evaluate with the mutant active) and full worker preload + inventory verification.
   const runIsolatedTrial = async (mutant, plan, fallbackReason) => {
     totals.isolated++;
     const activeId = mutant.active ?? mutant.id;
-    const isoTemp = resolve(temporary, `isolated-${totals.isolated}-${activeId.slice(0, 8)}`);
-    mkdirSync(isoTemp, { recursive: true });
-    const isoStateFile = resolve(isoTemp, 'pw-iso-state.json');
-    const isoTrialFile = resolve(isoTemp, 'pw-iso-trial.json');
-    const isoRecordsFile = resolve(isoTemp, 'pw-iso-records.jsonl');
-    const isoSpoolDir = resolve(isoTemp, 'pw-iso-spool');
-    const isoOriginsFile = resolve(isoTemp, 'pw-iso-origins.json');
-    mkdirSync(isoSpoolDir, { recursive: true });
-
-    const isoSpec = {
-      phase: 'trial',
-      activeMutant: activeId,
-      shift: mutant.shift ?? 0,
-      hitLimit: plan.hitLimit,
-      origins: [],
-    };
-    writeAtomicJson(isoTrialFile, isoSpec);
-    writeAtomicJson(isoStateFile, {
-      seq: 1,
-      phase: 'trial',
-      currentTestId: undefined,
-      activeMutant: activeId,
-      shift: mutant.shift ?? 0,
-      hitLimit: plan.hitLimit,
-    });
-
-    const targetFiles = plan.serverStatic
-      ? tests
-      : [...new Set(plan.orderedTestIds.map(id => passedTests.get(id)?.file).filter(Boolean))];
-
-    const isoBridgeEnv = {
-      TMT_WORKSPACE: workspace,
-      TMT_PW_STATE_FILE: isoStateFile,
-      TMT_PW_SPOOL_DIR: isoSpoolDir,
-      TMT_PW_TOKEN: token,
-    };
-    const isoRun = runPlaywright(workspace, isoTemp, {
-      config,
-      projects,
-      tests: targetFiles.length ? targetFiles : tests,
-      timeout: runTimeout,
-      original: originalRoot,
-      wrapperOptions: {
-        injectServerPreload: true,
-        originsFile: isoOriginsFile,
-        bridgeEnv: isoBridgeEnv,
-      },
-      extraEnv: {
-        TMT_PW_TRIAL_FILE: isoTrialFile,
-        TMT_PW_STATE_FILE: isoStateFile,
-        TMT_PW_RECORDS_FILE: isoRecordsFile,
-        TMT_PW_SPOOL_DIR: isoSpoolDir,
-        TMT_PW_ORIGINS_FILE: isoOriginsFile,
-        TMT_PW_TOKEN: token,
-        NODE_OPTIONS: process.env.NODE_OPTIONS,
-      },
-    });
-
-    let assessed;
-    if (hasHitLimitFailure(isoRun) || /Mutation hit limit reached/.test(isoRun.output ?? '')) {
-      assessed = { status: 'timeout', statusReason: 'Mutation hit limit reached' };
-    } else if (isoRun.status === 'timeout') {
-      assessed = { status: 'timeout', statusReason: isoRun.statusReason ?? 'Playwright test timeout' };
-    } else if (isoRun.status === 'failed') {
-      const killers = (isoRun.tests ?? []).filter(t => t.status === 'failed')
-        .map(({ id, project, file, name }) => ({ id, project, file, name }));
-      assessed = { status: 'killed', tests: killers };
-    } else if (isoRun.status === 'passed') {
-      assessed = { status: 'survived' };
-    } else {
-      assessed = {
-        status: isoRun.status === 'unstable' ? 'unstable' : 'error',
-        ...(isoRun.statusReason ? { statusReason: isoRun.statusReason } : {}),
+    const stopped = await stopManagedServer();
+    if (!stopped) {
+      return {
+        status: 'error',
+        statusReason: 'Playwright webServer failed to stop cleanly before isolated trial',
+        ...(fallbackReason ? { fallback: fallbackReason } : {}),
       };
     }
 
-    const isoRecords = readRecordsFile(isoRecordsFile);
+    setSessionMode({
+      phase: 'trial',
+      activeMutant: activeId,
+      shift: mutant.shift ?? 0,
+      hitLimit: plan.hitLimit,
+    });
+
+    const started = await startManagedServer();
+    if (started.status !== 'passed') {
+      // A server-static mutant that crashes server startup fails every test that depends on the server -> killed if serverStatic, else error.
+      if (plan.serverStatic) {
+        return {
+          status: 'killed',
+          killedBy: 'server-startup-error',
+          tests: [...passedTests.values()].map(({ id, project, file, name }) => ({ id, project, file, name })),
+          ...(fallbackReason ? { fallback: fallbackReason } : {}),
+        };
+      }
+      return {
+        status: 'error',
+        statusReason: started.errors[0] ?? 'Playwright webServer failed to start for isolated trial',
+        ...(fallbackReason ? { fallback: fallbackReason } : {}),
+      };
+    }
+
+    const expectedTestIds = plan.serverStatic ? [...passedTests.keys()] : plan.orderedTestIds;
+    const targetLocations = plan.serverStatic
+      ? initialLocations
+      : [...new Set(expectedTestIds.map(id => passedTests.get(id)?.file).filter(Boolean).map(escapeLocationPattern))];
+
+    const isoPass = await executePass({
+      phase: 'trial',
+      activeMutant: activeId,
+      shift: mutant.shift ?? 0,
+      hitLimit: plan.hitLimit,
+      testIds: plan.serverStatic ? undefined : expectedTestIds,
+      locations: targetLocations,
+      maxFailures: 1,
+      timeoutMs: runTimeout,
+    });
+
+    await stopManagedServer();
+
+    const assessed = assessIsolatedPlaywrightPass({
+      isoPass,
+      plan,
+      expectedTestIds,
+      passedTests,
+    });
+
     let effectsObj = {};
-    if (mutant.effects && assessed.status === 'survived' && isoRecords.length) {
+    if (mutant.effects && assessed.status === 'survived' && isoPass.records.length) {
       effectsObj = {
-        effects: effectsFromPlaywrightRecords(indexed.reach, isoRecords, plan.orderedTestIds, passedTests),
+        effects: effectsFromPlaywrightRecords(indexed.reach, isoPass.records, expectedTestIds, passedTests),
       };
     }
     return {
@@ -592,9 +647,17 @@ try {
     const fallbackQueue = [];
 
     if (!isolatedTrials && serverRestarts <= MAX_SERVER_RESTARTS) {
+      if (!serverRunning) {
+        setSessionMode({ phase: 'control' });
+        const restarted = await startManagedServer();
+        if (restarted.status !== 'passed') serverRestarts = MAX_SERVER_RESTARTS + 1;
+      }
+    }
+
+    if (!isolatedTrials && serverRunning && serverRestarts <= MAX_SERVER_RESTARTS) {
       for (const item of items) {
         const { mutant, plan } = item;
-        if (plan.serverStatic || !plan.orderedTestIds.length || serverRestarts > MAX_SERVER_RESTARTS) {
+        if (plan.serverStatic || !plan.orderedTestIds.length || !serverRunning || serverRestarts > MAX_SERVER_RESTARTS) {
           fallbackQueue.push({ ...item, reason: plan.serverStatic ? 'server-static' : 'worker-stopped' });
           continue;
         }
@@ -614,7 +677,6 @@ try {
           timeoutMs: runTimeout,
         });
 
-        // Determine which tests actually ran in `trialPass` (since `maxFailures: 1` stops early on first kill).
         const ranIds = trialPass.tests.map(t => t.id).filter(id => passedTests.has(id));
         const executedTestIds = ranIds.length ? ranIds : plan.orderedTestIds;
         const controlLocations = [...new Set(
@@ -653,10 +715,13 @@ try {
         } else {
           if (classified.needsServerRestart) {
             serverRestarts++;
-            if (serverRestarts <= MAX_SERVER_RESTARTS) {
-              await runner.runGlobalTeardown().catch(() => {});
-              const restarted = await startWarmServer();
+            const stoppedOk = await stopManagedServer();
+            if (stoppedOk && serverRestarts <= MAX_SERVER_RESTARTS) {
+              setSessionMode({ phase: 'control' });
+              const restarted = await startManagedServer();
               if (restarted.status !== 'passed') serverRestarts = MAX_SERVER_RESTARTS + 1;
+            } else {
+              serverRestarts = MAX_SERVER_RESTARTS + 1;
             }
           }
           fallbackQueue.push({ ...item, reason: classified.reason });
@@ -677,14 +742,6 @@ try {
     totals.sampled += sampled.size;
     const fallbackById = new Map(fallbackQueue.map(entry => [entry.mutant.id, entry]));
 
-    // Tear down the warm server before spawning isolated fresh webServers on the same loopback port!
-    const needsAnyIsolated = fallbackQueue.length > 0 || sampled.size > 0;
-    let warmStopped = false;
-    if (needsAnyIsolated) {
-      await runner.runGlobalTeardown().catch(() => {});
-      warmStopped = true;
-    }
-
     for (const { mutant, plan } of items) {
       if (warmSettledMap.has(mutant.id) && !sampled.has(mutant.id)) {
         emitResult(mutant, warmSettledMap.get(mutant.id));
@@ -701,11 +758,9 @@ try {
       }
       emitResult(mutant, freshOutcome);
     }
-
-    return warmStopped;
   };
 
-  let warmServerStopped = await decideList(pending, (mutant, result) => record({ id: mutant.id, ...result }));
+  await decideList(pending, (mutant, result) => record({ id: mutant.id, ...result }));
 
   if (awaitsExtras) {
     const rawExtras = await waitExtrasFromParent();
@@ -718,11 +773,6 @@ try {
       else extraItems.push({ mutant: { id: `extra:${index}`, index, active, shift: extra.shift }, plan });
     }
     if (extraItems.length) {
-      if (warmServerStopped && !isolatedTrials && serverRestarts <= MAX_SERVER_RESTARTS) {
-        const restarted = await startWarmServer();
-        if (restarted.status === 'passed') warmServerStopped = false;
-        else serverRestarts = MAX_SERVER_RESTARTS + 1;
-      }
       await decideList(extraItems, (mutant, result) => record({ extra: mutant.index, ...result }));
     }
   }
@@ -737,16 +787,13 @@ try {
   });
   record({ complete: true });
   exitStatus = 0;
+}
+
+try {
+  await runSession();
 } catch (error) {
   record({ error: String(error?.message ?? error) });
 } finally {
-  if (runner) {
-    await Promise.race([runner.stopTests().catch(() => {}), new Promise(r => setTimeout(r, 2_000))]);
-    await Promise.race([runner.runGlobalTeardown().catch(() => {}), new Promise(r => setTimeout(r, 5_000))]);
-    await Promise.race([runner.closeGracefully?.().catch?.(() => {}), new Promise(r => setTimeout(r, 2_000))]);
-  }
-  if (browserServer) {
-    await Promise.race([browserServer.close().catch(() => {}), new Promise(r => setTimeout(r, 3_000))]);
-  }
+  await cleanupResources();
   process.exit(exitStatus);
 }

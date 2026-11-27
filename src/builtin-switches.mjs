@@ -5,7 +5,7 @@ import { byteOffsets } from './source-text.mjs';
 // Runtime switches for the built-in mutation set. Expressions become `on(id) ? mutated : (cover(id), original)`;
 // blocks, case clauses and removable statements become `if (on(id)) mutated else { cover(id); original }`.
 // The helpers speak the test session's protocol: one active mutation and per-test hit counts.
-const helpers = (on, cover, shift, scope, cmp, loadedComparisons = []) => `
+const helpers = (on, cover, shift, scope, cmp, loadedComparisons = [], fileId = '') => `
 function ${shift}() {
   var scope = ${scope};
   return (scope.__stryker__ && scope.__stryker__.shift) || 0;
@@ -22,6 +22,19 @@ function ${cover}() {
   var counts = ns.currentTestId ? (coverage.perTest[ns.currentTestId] || (coverage.perTest[ns.currentTestId] = {})) : coverage.static;
   for (var i = 0; i < arguments.length; i++) counts[arguments[i]] = (counts[arguments[i]] || 0) + 1;
 }
+(function() {
+  var scope = ${scope}, ns = scope.__stryker__;
+  if (!ns) {
+    ns = {};
+    try { scope.Object.defineProperty(scope, '__stryker__', { value: ns, enumerable: false, writable: true, configurable: true }); }
+    catch (e) { scope.__stryker__ = ns; }
+  }
+  if (${JSON.stringify(Boolean(fileId))}) {
+    var lf = ns.loadedFiles || (ns.loadedFiles = []);
+    var fid = ${JSON.stringify(fileId)};
+    if (lf.indexOf(fid) < 0) lf.push(fid);
+  }
+})();
 ${loadedComparisons.length ? `function ${cmp}(site, op, lhs, rhs) {
   var scope = ${scope}, ns = scope.__stryker__ || (scope.__stryker__ = {});
   var state = scope[scope.Symbol.for('targeted-mutation-ts/session')];
@@ -45,15 +58,16 @@ ${loadedComparisons.length ? `function ${cmp}(site, op, lhs, rhs) {
         slot.rows.push([lhs, rhs, result]);
       } else {
         slot.overflow = true;
-        var diff = lhs - rhs;
+        var bi = scope.BigInt;
+        var diff = bi(lhs) - bi(rhs);
         var ex = slot.extrema || (slot.extrema = {});
         if (slot.rows.length > 0 && rhs !== slot.rows[0][1] && !ex.altRhs) ex.altRhs = [lhs, rhs, result];
         if (result) {
-          if (!ex.minTrue || diff < ex.minTrue[0] - ex.minTrue[1]) ex.minTrue = [lhs, rhs, true];
-          if (!ex.maxTrue || diff > ex.maxTrue[0] - ex.maxTrue[1]) ex.maxTrue = [lhs, rhs, true];
+          if (!ex.minTrue || diff < bi(ex.minTrue[0]) - bi(ex.minTrue[1])) ex.minTrue = [lhs, rhs, true];
+          if (!ex.maxTrue || diff > bi(ex.maxTrue[0]) - bi(ex.maxTrue[1])) ex.maxTrue = [lhs, rhs, true];
         } else {
-          if (!ex.minFalse || diff < ex.minFalse[0] - ex.minFalse[1]) ex.minFalse = [lhs, rhs, false];
-          if (!ex.maxFalse || diff > ex.maxFalse[0] - ex.maxFalse[1]) ex.maxFalse = [lhs, rhs, false];
+          if (!ex.minFalse || diff < bi(ex.minFalse[0]) - bi(ex.minFalse[1])) ex.minFalse = [lhs, rhs, false];
+          if (!ex.maxFalse || diff > bi(ex.maxFalse[0]) - bi(ex.maxFalse[1])) ex.maxFalse = [lhs, rhs, false];
         }
       }
     }
@@ -733,7 +747,7 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
   // A file whose mutations are all ignored keeps its source.
   const rendered = mutants.length ? render(0, text.length) : text;
   const output = mutants.length
-    ? rendered + helpers(on, cover, shift, scope, cmp, loadedComparisons) + (probed.length ? probe(see, table, cover, scope, probed) : '')
+    ? rendered + helpers(on, cover, shift, scope, cmp, loadedComparisons, options.trackLoadedFile ? file : '') + (probed.length ? probe(see, table, cover, scope, probed) : '')
     : text;
   // Ignored mutations are reported in source order with the others and get no switch.
   const reported = [...mutants, ...found.filter(mutation => mutation.ignored !== undefined).map(identified)]

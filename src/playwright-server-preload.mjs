@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
 import { join } from 'node:path';
@@ -8,14 +8,24 @@ import { snapshotAndResetNamespace, verifyBridgeToken } from './playwright-bridg
 const stateFile = process.env.TMT_PW_STATE_FILE;
 const token = process.env.TMT_PW_TOKEN;
 const spoolDir = process.env.TMT_PW_SPOOL_DIR;
+const pidsFile = process.env.TMT_PW_PIDS_FILE;
 const sessionKey = Symbol.for('targeted-mutation-ts/session');
 
 function ensureNamespace() {
-  const ns = globalThis.__stryker__ ?? (globalThis.__stryker__ = {});
+  let ns = globalThis.__stryker__;
+  if (!ns) {
+    ns = {};
+    try {
+      Object.defineProperty(globalThis, '__stryker__', { value: ns, enumerable: false, writable: true, configurable: true });
+    } catch {
+      globalThis.__stryker__ = ns;
+    }
+  }
   ns.mutantCoverage ??= { static: {}, perTest: {} };
   ns.observed ??= {};
   ns.comparisons ??= {};
   ns.loadedComparisons ??= [];
+  ns.loadedFiles ??= [];
   if (ns.hitCount === undefined) ns.hitCount = 0;
   return ns;
 }
@@ -40,11 +50,21 @@ function syncState() {
   }
 }
 
+function recordServerPid() {
+  if (!pidsFile) return;
+  try {
+    appendFileSync(pidsFile, JSON.stringify({ kind: 'webServer', pid: process.pid }) + '\n', 'utf8');
+  } catch {}
+}
+
 function wrapServerEmit(Proto) {
   if (!Proto || Proto.__tmtWrapped) return;
   const origEmit = Proto.emit;
   Object.defineProperty(Proto, '__tmtWrapped', { value: true });
   Proto.emit = function tmtServerEmit(event, req, res, ...rest) {
+    if (event === 'listening') {
+      recordServerPid();
+    }
     if (event === 'request' && req && res) {
       if (req.url === '/__tmt_harvest__' && verifyBridgeToken(req.headers?.['x-tmt-token'], token)) {
         syncState();
@@ -59,12 +79,26 @@ function wrapServerEmit(Proto) {
         return true;
       }
       syncState();
+      // Ignore Playwright's pre-baseline `webServer` readiness probe (`phase === 'boot'`) so healthcheck HTTP pings
+      // neither masquerade as module-load `serverBootStatic` coverage nor record `identity: null` comparison rows.
+      if (globalThis[sessionKey]?.phase === 'boot') {
+        const ns = ensureNamespace();
+        const savedStatic = ns.mutantCoverage.static;
+        const savedPerTest = ns.mutantCoverage.perTest;
+        ns.mutantCoverage = { static: {}, perTest: {} };
+        try {
+          return origEmit.call(this, event, req, res, ...rest);
+        } finally {
+          ns.mutantCoverage = { static: savedStatic, perTest: savedPerTest };
+        }
+      }
     }
     return origEmit.call(this, event, req, res, ...rest);
   };
 }
 
 if (stateFile && token) {
+  recordServerPid();
   syncState();
   wrapServerEmit(http.Server?.prototype);
   wrapServerEmit(https.Server?.prototype);
@@ -79,7 +113,8 @@ if (stateFile && token) {
       Object.keys(snapshot.mutantCoverage.perTest).length > 0 ||
       Object.keys(snapshot.observed).length > 0 ||
       Object.keys(snapshot.comparisons).length > 0 ||
-      snapshot.loadedComparisons.length > 0;
+      snapshot.loadedComparisons.length > 0 ||
+      snapshot.loadedFiles.length > 0;
     if (!hasData) return;
     try {
       writeFileSync(join(spoolDir, `exit-${process.pid}-${randomUUID()}.json`), JSON.stringify(snapshot), 'utf8');

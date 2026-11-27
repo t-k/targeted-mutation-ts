@@ -229,6 +229,50 @@ function supervisePlaywrightSession(workspace, temp, manifest, limit, signal) {
   });
 }
 
+function terminateRecordedPids(pidsFile) {
+  if (!pidsFile || !existsSync(pidsFile)) return;
+  let lines = [];
+  try {
+    lines = readFileSync(pidsFile, 'utf8').trim().split('\n').filter(Boolean);
+  } catch {
+    return;
+  }
+  const pids = new Set();
+  for (const line of lines) {
+    try {
+      const parsed = JSON.parse(line);
+      if (Number.isInteger(parsed?.pid) && parsed.pid > 1 && parsed.pid !== process.pid) {
+        pids.add(parsed.pid);
+      }
+    } catch {}
+  }
+  const signalPid = (pid, sig) => {
+    if (process.platform !== 'win32') {
+      try { process.kill(-pid, sig); } catch {}
+    }
+    try { process.kill(pid, sig); } catch {}
+  };
+  const alive = [];
+  for (const pid of pids) {
+    try {
+      process.kill(pid, 0);
+      signalPid(pid, 'SIGTERM');
+      alive.push(pid);
+    } catch {}
+  }
+  if (!alive.length) return;
+  const deadline = Date.now() + 300;
+  while (Date.now() < deadline) {
+    if (alive.every(pid => { try { process.kill(pid, 0); return false; } catch { return true; } })) return;
+  }
+  for (const pid of alive) {
+    try {
+      process.kill(pid, 0);
+      signalPid(pid, 'SIGKILL');
+    } catch {}
+  }
+}
+
 // Runs a switched Playwright E2E session: instruments sources once with pure-JS switches + comparison probes,
 // starts webServer + browserServer once, collects dual-realm baseline observations, plans threshold/margin shifts,
 // and decides reached mutants with post-trial control checks and automatic isolated fallback.
@@ -268,6 +312,7 @@ export async function analyzePlaywrightSession(project, files, options) {
     dialect: options.dialect,
     shifts: true,
     recordComparisons: true,
+    trackLoadedFile: true,
     excludeRules: options['exclude-rule'],
     typeContext,
     targeted: true,
@@ -327,6 +372,7 @@ export async function analyzePlaywrightSession(project, files, options) {
     }
     const manifest = resolve(temp, 'playwright-session.json');
     const output = resolve(temp, 'playwright-session.jsonl');
+    const pidsFile = resolve(temp, 'pw-pids.jsonl');
     const extrasPath = resolve(temp, 'extras.json');
     const runTimeoutMs = options.timeout ? options.timeout * 1000 : 60_000;
     const baselineTimeoutMs = options['baseline-timeout'] ? options['baseline-timeout'] * 1000 : runTimeoutMs;
@@ -338,6 +384,8 @@ export async function analyzePlaywrightSession(project, files, options) {
       config: options.config,
       projects: options.project ?? [],
       tests: options.test ?? [],
+      subjectFiles: sources.map(s => s.file),
+      pidsFile,
       output,
       temporary: temp,
       awaitsExtras: typeof options.onBaselineRecorded === 'function',
@@ -412,6 +460,7 @@ export async function analyzePlaywrightSession(project, files, options) {
       clearInterval(pollTimer);
       finished = true;
       options.signal?.removeEventListener('abort', onAbort);
+      terminateRecordedPids(pidsFile);
     }
     if (extrasError) throw extrasError;
 
