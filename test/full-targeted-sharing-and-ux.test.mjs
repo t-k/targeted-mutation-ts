@@ -382,8 +382,8 @@ test('Dogfooding UX fixes: webServer.port + 127.0.0.1 baseURL, baseline stderr s
     assert.equal(sideEffects, 0, 'relational pure guard must never invoke valueOf on objects');
     const eqTrueMut = guardEval.rendered.mutants.find(m => m.mutatorName === 'equality-constant/v1' && m.targeted?.form === 'true');
     const obs = guardEval.ns.observed[eqTrueMut.id];
-    // Call 1 (`subtotal = 8000` primitive) was absorbed (`counts[0] === 1`); Call 2 (`object`) safely declined absorption (`counts[1] === 1`)!
-    assert.deepEqual([...obs.tests.t1], [1, 1, 0]);
+    // Call 1 (`subtotal = 8000` primitive) was absorbed (`counts[0] === 1`); Call 2 (`object`) safely aborted to `unsure` (`counts[2] === 1`)!
+    assert.deepEqual([...obs.tests.t1], [1, 0, 1]);
     assert.equal(obs.absorbed, true);
 
     // 7. Natural `??` literal-fallback message (`couponCode ?? ''`).
@@ -549,5 +549,113 @@ test('Codex Round 1 regressions: Math getter/swap/await safety, TS erased method
     }
   } finally {
     rmSync(monoDir, { recursive: true, force: true });
+  }
+});
+
+test('Codex Round 2 regressions: `(a?.b).every(...)` overlap, `o.m<T>?.()`, lazy Math check, `with` purity, symlinked `@scope` isolation, `Boolean(x ?? 0)`, and credential-free baseURL error', async () => {
+  const { symlinkSync, readdirSync } = await import('node:fs');
+
+  // 1. `(a?.b).every(x => x)` and `a?.b.every(x => x)` compile and execute cleanly without overlapping probe syntax!
+  const optMethodSrc = [
+    'export const parenEvery = (a: { b?: boolean[] } | null) => (a?.b ?? [true]).every(x => x);',
+    'export const directParenEvery = (a: { b: boolean[] }) => (a?.b).every(x => x);',
+    'export const genericOptCall = (o: any) => o.m<number>?.();',
+    'export const parenGenericOptCall = (o: any) => (o.m<number>)?.();',
+  ].join('\n');
+  const optMethodEval = evalInstrumented(optMethodSrc, 'src/om.ts', exports => {
+    const obj = { m() { return this === obj; } };
+    return [
+      exports.parenEvery(null),
+      exports.directParenEvery({ b: [true, false] }),
+      exports.genericOptCall(obj),
+      exports.parenGenericOptCall(obj),
+    ];
+  });
+  assert.deepEqual([...optMethodEval.value], [true, false, true, true]);
+
+  // 2. Unrelated arithmetic (`x + 1`) NEVER touches a poisoned `Math` Proxy or invokes `Math.max`!
+  const arithOnlySrc = 'export const inc = (x: number) => x + 1;\n';
+  let mathTouched = 0;
+  const arithEval = evalInstrumented(arithOnlySrc, 'src/inc.ts', (exports, ctx) => {
+    const origMath = vm.runInContext('Math', ctx);
+    vm.runInContext('globalThis', ctx).Math = new Proxy(origMath, {
+      getOwnPropertyDescriptor() { mathTouched++; throw new Error('Math touched on arithmetic'); },
+      get() { mathTouched++; throw new Error('Math get touched on arithmetic'); },
+    });
+    try {
+      return exports.inc(2);
+    } finally {
+      vm.runInContext('globalThis', ctx).Math = origMath;
+    }
+  });
+  assert.equal(arithEval.value, 3);
+  assert.equal(mathTouched, 0, 'unrelated arithmetic probe must never inspect globalThis.Math');
+
+  // 3. `with (o) { if (x === 1) return 1; }` must NOT mark `x === 1` as `pureBoolean: true`!
+  const withCondRendered = renderBuiltinSwitches(
+    Buffer.from('function f(o, x) { with (o) { if (x === 1) return 1; } return 0; }\n'),
+    'src/wc.js',
+    () => true,
+    { targeted: true },
+  );
+  const withCondMut = withCondRendered.mutants.find(m => m.mutatorName === 'ConditionalExpression' && m.replacement === 'true');
+  assert.equal(withCondMut.fullDiagnostic.pureBoolean, false);
+
+  // 4. `Boolean(x ?? 0)` keeps `ignored-operand/v1` right-drop because `globalThis.Boolean` can be replaced at runtime!
+  const boolWrapSrc = 'export const bw = (x: number | null) => Boolean(x ?? 0);\n';
+  const boolWrapRendered = renderBuiltinSwitches(Buffer.from(boolWrapSrc), 'src/bw.ts', () => true, { dialect: 'ts', targeted: true });
+  assert.equal(
+    boolWrapRendered.mutants.some(m => m.mutatorName === 'ignored-operand/v1' && m.targeted?.form === 'right'),
+    true,
+    'Boolean(x ?? 0) must keep right-drop mutant when Boolean is runtime-replaceable',
+  );
+
+  // 5. Symlinked `@scope` in local `node_modules` + hoisted `@scope/other` never writes into external symlink target!
+  const scopeDir = mkdtempSync(join(tmpdir(), 'tmt-scope-sym-'));
+  try {
+    const externalScopeTarget = join(scopeDir, 'external-scope');
+    mkdirSync(join(externalScopeTarget, 'local-pkg'), { recursive: true });
+    writeFileSync(join(externalScopeTarget, 'local-pkg', 'index.js'), 'module.exports = "local-scoped";\n');
+
+    mkdirSync(join(scopeDir, 'workspace', 'node_modules', '@acme', 'hoisted-pkg'), { recursive: true });
+    writeFileSync(join(scopeDir, 'workspace', 'node_modules', '@acme', 'hoisted-pkg', 'index.js'), 'module.exports = "hoisted-scoped";\n');
+
+    const subPkg = join(scopeDir, 'workspace', 'packages', 'sub');
+    mkdirSync(join(subPkg, 'node_modules'), { recursive: true });
+    symlinkSync(externalScopeTarget, join(subPkg, 'node_modules', '@acme'), 'dir');
+    writeFileSync(join(subPkg, 'package.json'), JSON.stringify({ name: 'sub' }));
+
+    withCopy(subPkg, copyRoot => {
+      assert.equal(readFileSync(resolve(copyRoot, 'node_modules', '@acme', 'local-pkg', 'index.js'), 'utf8').trim(), 'module.exports = "local-scoped";');
+      assert.equal(readFileSync(resolve(copyRoot, 'node_modules', '@acme', 'hoisted-pkg', 'index.js'), 'utf8').trim(), 'module.exports = "hoisted-scoped";');
+    });
+    // External symlink target MUST remain untouched (only `local-pkg`, NEVER `hoisted-pkg` written into it)!
+    assert.deepEqual(readdirSync(externalScopeTarget), ['local-pkg']);
+
+    // 6. Rejected `baseURL` strips credentials, path, and query tokens from error message!
+    writeFileSync(join(subPkg, 'playwright.config.mjs'), `
+      export default {
+        use: { baseURL: 'http://admin:supersecret@[::1]:3992/private?token=leak123' },
+        webServer: { command: 'node srv.mjs', url: 'http://127.0.0.1:3992' },
+      };
+    `);
+    const credWrapper = createPlaywrightConfigWrapper(subPkg, 'playwright.config.mjs');
+    const prevWs = process.env.TMT_WORKSPACE;
+    process.env.TMT_WORKSPACE = realpathSync(subPkg);
+    try {
+      await assert.rejects(
+        () => import(credWrapper),
+        err => {
+          assert.match(err.message, /http:\/\/\[::1\]:3992/);
+          assert.doesNotMatch(err.message, /supersecret|leak123|admin/);
+          return true;
+        },
+      );
+    } finally {
+      if (prevWs === undefined) delete process.env.TMT_WORKSPACE;
+      else process.env.TMT_WORKSPACE = prevWs;
+    }
+  } finally {
+    rmSync(scopeDir, { recursive: true, force: true });
   }
 });

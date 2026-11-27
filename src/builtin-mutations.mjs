@@ -626,7 +626,7 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
       const more = { thunk: true, ...(isPureRight ? { pureRight: true, rightText: right } : {}) };
       edit(targetedRules.ignored, 'left', `(${left}, ${right})`, more);
       const eqvNullishRight = operator === '??' &&
-        (safeNullishLiteral(node.right) === 'undefined' || (boolean && writtenFalsy(node.right)));
+        (safeNullishLiteral(node.right) === 'undefined' || (truthContextKind(node) === 1 && writtenFalsy(node.right)));
       if (!eqvNullishRight) {
         edit(targetedRules.ignored, 'right', `(${left} ${operator} (${right}, ${ignoredValue[operator]}))`, more);
       }
@@ -811,6 +811,7 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     return resolveIdentifierBinding(node, 'undefined') !== 'unbound';
   }
   function isSafeGuardIdentifier(ident) {
+    if (insideWith(ident)) return false;
     if (ident.text === 'undefined') return !isUndefinedBoundAt(ident);
     return resolveIdentifierBinding(ident, ident.text) === 'safe';
   }
@@ -1185,7 +1186,7 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
 
   function stripTypeOnly(n) {
     while (n && (ts.isNonNullExpression(n) || ts.isAsExpression(n) ||
-        ts.isSatisfiesExpression(n) || ts.isTypeAssertionExpression(n))) {
+        ts.isSatisfiesExpression(n) || ts.isTypeAssertionExpression(n) || ts.isExpressionWithTypeArguments(n))) {
       n = n.expression;
     }
     return n;
@@ -1193,7 +1194,8 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
 
   function stripTypeAndParens(n) {
     while (n && (ts.isParenthesizedExpression(n) || ts.isNonNullExpression(n) ||
-        ts.isAsExpression(n) || ts.isSatisfiesExpression(n) || ts.isTypeAssertionExpression(n))) {
+        ts.isAsExpression(n) || ts.isSatisfiesExpression(n) || ts.isTypeAssertionExpression(n) ||
+        ts.isExpressionWithTypeArguments(n))) {
       n = n.expression;
     }
     return n;

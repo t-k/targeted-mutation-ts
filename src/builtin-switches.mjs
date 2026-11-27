@@ -153,7 +153,7 @@ ${loadedComparisons.length ? `function ${cmp}(site, op, lhs, rhs) {
   var ta = typeof a, tb = typeof b;
   var pa = a === null || a === void 0 || ta === 'number' || ta === 'string' || ta === 'boolean' || ta === 'bigint';
   var pb = b === null || b === void 0 || tb === 'number' || tb === 'string' || tb === 'boolean' || tb === 'bigint';
-  if (!pa || !pb) throw 0;
+  if (!pa || !pb) throw { __tmtRelAbort: 1 };
   return op === '<' ? a < b : op === '<=' ? a <= b : op === '>' ? a > b : a >= b;
 }
 ` : ''}`;
@@ -179,14 +179,23 @@ function ${see}(i, l, r, r2, g) {
   function isNativeFn(fn) {
     try { return typeof fn === 'function' && scope.Function.prototype.toString.call(fn).indexOf('[native code]') >= 0; } catch (e) { return false; }
   }
-  var mathMethods = ${table}.m || (${table}.m = (function() {
-    var m = scope.Math;
-    if (!m || typeof m !== 'object') return { min: null, max: null };
-    var mn = safeProtoMethod(m, 'min'), mx = safeProtoMethod(m, 'max');
-    var okMin = isNativeFn(mn) && mn.name === 'min' && mn.length === 2 && mn(2, 1) === 1 && mn(-1, -2) === -2;
-    var okMax = isNativeFn(mx) && mx.name === 'max' && mx.length === 2 && mx(2, 1) === 2 && mx(-1, -2) === -1;
-    return { min: okMin ? mn : null, max: okMax ? mx : null };
-  })());
+  function getMathMethods() {
+    if (${table}.m !== void 0) return ${table}.m;
+    try {
+      var m = scope.Math;
+      if (!m || typeof m !== 'object' || (isProxy && isProxy(m))) return (${table}.m = { min: null, max: null });
+      var mn = safeProtoMethod(m, 'min'), mx = safeProtoMethod(m, 'max');
+      function validMathFn(fn, expectedName) {
+        if (!fn || (isProxy && isProxy(fn)) || !isNativeFn(fn)) return false;
+        var nd = scope.Object.getOwnPropertyDescriptor(fn, 'name');
+        var ld = scope.Object.getOwnPropertyDescriptor(fn, 'length');
+        return Boolean(nd && 'value' in nd && nd.value === expectedName && ld && 'value' in ld && ld.value === 2);
+      }
+      return (${table}.m = { min: validMathFn(mn, 'min') ? mn : null, max: validMathFn(mx, 'max') ? mx : null });
+    } catch (e) {
+      return (${table}.m = { min: null, max: null });
+    }
+  }
   function numMin(a, b) { return a !== a || b !== b ? NaN : (a === 0 && b === 0 ? (1 / a < 0 || 1 / b < 0 ? -0 : 0) : a < b ? a : b); }
   function numMax(a, b) { return a !== a || b !== b ? NaN : (a === 0 && b === 0 ? (1 / a > 0 || 1 / b > 0 ? 0 : -0) : a > b ? a : b); }
   function isPlainDataObj(v) {
@@ -420,11 +429,13 @@ function ${see}(i, l, r, r2, g) {
       }
     } else if (kind === 'r') {
       var origFn = l[op];
-      if ((op === 'max' || op === 'min') && l === scope.Math) {
+      var mm = null;
+      if ((op === 'max' || op === 'min') && l === scope.Math && (!isProxy || !isProxy(l))) {
         try {
+          mm = getMathMethods();
           var mAlt = op === 'max' ? 'min' : 'max';
           var altFnPre = safeProtoMethod(l, mAlt);
-          mathPreOk = Boolean(mathMethods[op] && mathMethods[mAlt] && origFn === mathMethods[op] && altFnPre === mathMethods[mAlt]);
+          mathPreOk = Boolean(mm[op] && mm[mAlt] && origFn === mm[op] && altFnPre === mm[mAlt]);
         } catch (error) { mathPreOk = false; }
       }
       arg1 = r();
@@ -444,10 +455,10 @@ function ${see}(i, l, r, r2, g) {
       }
       if (site[7] === 3) {
         arg2 = r2();
-        if (mathPreOk) {
+        if (mathPreOk && mm) {
           try {
             var mAltPost = op === 'max' ? 'min' : 'max';
-            if (safeProtoMethod(l, mAltPost) !== mathMethods[mAltPost]) mathPreOk = false;
+            if (safeProtoMethod(l, mAltPost) !== mm[mAltPost]) mathPreOk = false;
           } catch (error) { mathPreOk = false; }
         }
         value = scope.Reflect.apply(origFn, l, [arg1, arg2]);
@@ -510,9 +521,9 @@ function ${see}(i, l, r, r2, g) {
       try {
         var go = gFn(origLeaf), ga = gFn(altLeaf);
         var truthOnly = site[8] === 1 || (site[8] === 2 && isBuiltinBoolean());
-        return truthOnly ? (!go === !ga) : is(go, ga);
+        return (truthOnly ? (!go === !ga) : is(go, ga)) ? 1 : 0;
       } catch (e) {
-        return false;
+        return e && e.__tmtRelAbort ? -1 : 0;
       }
     }
     for (k = 0; k < edits.length; k++) {
@@ -572,7 +583,9 @@ function ${see}(i, l, r, r2, g) {
         altVal = edited(f);
         same = value === altVal;
         if (same === false && gFn && (op === '===' || op === '!==' || site[9] || (plain(l) && plain(r)))) {
-          if (sameInGuard(value, altVal)) { same = true; absorbed = true; }
+          var gEq = sameInGuard(value, altVal);
+          if (gEq === 1) { same = true; absorbed = true; }
+          else if (gEq === -1) same = null;
         }
       } else if (!logical) {
         same = alike(f, value);
@@ -582,17 +595,20 @@ function ${see}(i, l, r, r2, g) {
         // so never call r() a second time (which would double-count nested mutantCoverage and observed hits).
         if (f === 'right' && !taken) same = true;
         else {
-          var okR = true, rVal = value;
+          var okR = 1, rVal = value;
           if (!taken && f !== 'right' && (f === 'left' || (f === 'or' ? !l : missing))) {
             if (site[5]) rVal = r();
-            else { try { rVal = rawR(); } catch (e) { okR = false; } }
+            else { try { rVal = rawR(); } catch (e) { okR = e && e.__tmtRelAbort ? -1 : 0; } }
           }
-          if (!okR) same = false;
+          if (okR === 0) same = false;
+          else if (okR === -1) same = null;
           else {
             other = f === 'right' ? constant : f === 'left' ? rVal : (f === 'or' ? !l : missing) ? rVal : l;
             same = site[1] ? !value === !other : is(value, other);
             if (same === false && gFn) {
-              if (sameInGuard(value, other)) { same = true; absorbed = true; }
+              var gLog = sameInGuard(value, other);
+              if (gLog === 1) { same = true; absorbed = true; }
+              else if (gLog === -1) same = null;
             }
           }
         }
@@ -799,7 +815,11 @@ export function renderBuiltinSwitches(input, file, selected = () => true, option
             safeOpts.push(m);
           }
           const minOptStart = safeOpts.length ? safeOpts.at(-1).optReceiverSpan[0] : -1;
-          if (safeOpts.length > 0 && minOptStart >= first && safeOpts.at(-1).optReceiverSpan[1] < last) {
+          const hasSameOrPrefixSwitch = index < ordered.length && (
+            (ordered[index].placement[0] === first && ordered[index].placement[1] === last) ||
+            ordered[index].placement[0] < minOptStart
+          );
+          if (safeOpts.length > 0 && !hasSameOrPrefixSwitch && minOptStart >= first && safeOpts.at(-1).optReceiverSpan[1] < last) {
             usedOpt = true;
             const prefix = minOptStart > first ? render(first, minOptStart) : '';
             let acc = '';

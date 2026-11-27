@@ -112,6 +112,15 @@ export function fullBuiltinGap(mutant, seen) {
     };
   }
   if (meta.kind === 'condition') {
+    if ((meta.truthMode ?? 1) === 0) {
+      return {
+        kind: 'INPUT GAP',
+        ...common,
+        reachedBy: seen.agreeing,
+        missing: `a test in which \`${clip(meta.expression)}\` is not \`${meta.target}\``,
+        ...(seen.agree ? { observed: { operands: seen.agree } } : {}),
+      };
+    }
     const needed = meta.target === 'true' ? 'falsy' : 'truthy';
     return {
       kind: 'INPUT GAP',

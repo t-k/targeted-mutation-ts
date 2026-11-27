@@ -118,11 +118,15 @@ export function copyPathIsExcluded(source, path, exclusions) {
 }
 
 function collectModuleEntries(modulesDir, mergedDirectories) {
-  return readdirSync(modulesDir, { withFileTypes: true }).flatMap(entry =>
-    (entry.isDirectory() && entry.name.startsWith('@') || mergedDirectories.has(entry.name))
-      ? readdirSync(resolve(modulesDir, entry.name), { withFileTypes: true })
+  return readdirSync(modulesDir, { withFileTypes: true }).flatMap(entry => {
+    const fullEntry = resolve(modulesDir, entry.name);
+    const expandDir = (entry.name.startsWith('@') || mergedDirectories.has(entry.name)) &&
+      statSync(fullEntry, { throwIfNoEntry: false })?.isDirectory();
+    return expandDir
+      ? readdirSync(fullEntry, { withFileTypes: true })
         .map(child => ({ entry: child, name: join(entry.name, child.name), baseDir: modulesDir }))
-      : [{ entry, name: entry.name, baseDir: modulesDir }]);
+      : [{ entry, name: entry.name, baseDir: modulesDir }];
+  });
 }
 
 function linkInstalledModules(source, root, projectModules, installed, tools, ancestorModulesList = []) {

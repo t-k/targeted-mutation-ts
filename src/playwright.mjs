@@ -128,8 +128,11 @@ if (originsOut) {
 }
 for (const project of config.projects?.length ? config.projects : [config]) {
   const target = project.use?.baseURL ?? config.use?.baseURL;
-  if (target && !allowedOrigins.has(new URL(target).origin)) {
-    throw new Error('Playwright baseURL (' + target + ') must target a managed webServer origin (' + harvestOriginsList.join(', ') + ')');
+  if (target) {
+    const targetOrigin = new URL(target).origin;
+    if (!allowedOrigins.has(targetOrigin)) {
+      throw new Error('Playwright baseURL (' + targetOrigin + ') must target a managed webServer origin (' + harvestOriginsList.join(', ') + ')');
+    }
   }
 }
 const browser = (project) => project.use?.browserName ?? project.use?.defaultBrowserType ?? config.use?.browserName ?? 'chromium';
