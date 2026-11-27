@@ -1283,7 +1283,9 @@ function lowerNamespacesAndEnums(source, isJsx = false) {
           if (k === 0) declaredVars.add(nm);
           innerCode = `${varDecl}(function (${param}) {\n${innerCode}\n})(${arg});`;
         }
-        edits.push({ start: t.start, end: toks[closeIdx].end, text: innerCode });
+        const needsBlockWrap = !parentNs && prev && (prev.text === ')' || prev.text === 'else' || prev.text === 'do' || isLabeled);
+        const emitted = needsBlockWrap ? `{ ${innerCode} }` : innerCode;
+        edits.push({ start: t.start, end: toks[closeIdx].end, text: emitted });
         i = closeIdx;
         continue;
       }
@@ -1990,6 +1992,16 @@ function eraseAngleBracketAssertions(source) {
     if (toks[i].type !== 'punc' || toks[i].text !== '<') continue;
     const prev = i > 0 ? toks[i - 1] : null;
     if (prev && !EXPR_PREFIX.has(prev.text)) continue;
+    if (prev && prev.text === 'of') {
+      // Only treat `of` as an expression prefix inside a `for (...)` header (not `let of = 0; of < 1 > +2`).
+      let dP = 0, pIdx = -1;
+      for (let b = i - 2; b >= 0; b--) {
+        if (toks[b].text === ')') dP++;
+        else if (toks[b].text === '(') { if (dP === 0) { pIdx = b; break; } dP--; }
+      }
+      const isForOf = pIdx > 0 && (toks[pIdx - 1].text === 'for' || (pIdx > 1 && toks[pIdx - 1].text === 'await' && toks[pIdx - 2].text === 'for'));
+      if (!isForOf) continue;
+    }
     // Scan one or more chained balanced `< ... >` (e.g. `<any><any>{}`).
     let k = i;
     let chainCount = 0;
@@ -3917,10 +3929,28 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
 
   // `Unexpected token 'ident'. Expected * for generator`: disallowed/duplicate class modifiers (`override accessor`, `override declare`, `override readonly`, `abstract override`, `override public`, etc.)
   if (errMsg.includes('Expected * for generator')) {
-    let work = source.replace(/\b(?:override|abstract|readonly|declare|public|private|protected)([ \t]+)(?=accessor\b|override\b|static\b|abstract\b|public\b|private\b|protected\b|declare\b|readonly\b)/g, (m, sp) => ' '.repeat(m.length - sp.length) + sp);
-    if (work !== source) {
-      const stripped = tryStrip(work);
-      if (stripped !== null) return stripped;
+    const toks = tokenize(source);
+    if (toks) {
+      const MOD_LEFT = new Set(['override', 'abstract', 'readonly', 'declare', 'public', 'private', 'protected']);
+      const MOD_RIGHT = new Set(['accessor', 'override', 'static', 'abstract', 'public', 'private', 'protected', 'declare', 'readonly']);
+      const edits = [];
+      for (let i = 0; i < toks.length - 1; i++) {
+        const t = toks[i], next = toks[i + 1];
+        if (t.type !== 'id' || toks[i - 1]?.text === '.' || hasNewlineBetween(source, t.end, next.start)) continue;
+        if (MOD_LEFT.has(t.text) && next.type === 'id' && MOD_RIGHT.has(next.text)) {
+          edits.push({ start: t.start, end: t.end, text: ' '.repeat(t.end - t.start) });
+        } else if (t.text === 'declare' && next.type === 'id' && (next.text === 'get' || next.text === 'set') && toks[i + 2] &&
+            !hasNewlineBetween(source, next.end, toks[i + 2].start)) {
+          edits.push({ start: t.start, end: t.end, text: '       ' });
+        }
+      }
+      if (edits.length > 0) {
+        let work = '', pos = 0;
+        for (const e of edits) { work += source.slice(pos, e.start) + e.text; pos = e.end; }
+        work += source.slice(pos);
+        const stripped = tryStrip(work);
+        if (stripped !== null) return stripped;
+      }
     }
   }
 
@@ -6494,7 +6524,6 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
     const toks = tokenize(source);
     if (toks) {
       const edits = [];
-      const TS_PRIM = new Set(['any', 'number', 'string', 'boolean', 'void', 'null', 'undefined', 'never', 'unknown', 'object', 'symbol', 'bigint']);
       const DECL_MOD = new Set(['var', 'let', 'const', 'public', 'private', 'protected', 'readonly', 'static', 'override', 'abstract', 'declare', 'accessor']);
       for (let i = 1; i < toks.length - 1; i++) {
         const prev = toks[i - 1], cur = toks[i], next = toks[i + 1];
@@ -6511,7 +6540,7 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
             next.type === 'id') {
           if (cur.text === '!' && prev.text === ':') {
             const p2 = toks[i - 2], p3 = toks[i - 3];
-            const isTypePos = TS_PRIM.has(next.text) || p2?.text === ')' || p2?.text === '?' ||
+            const isTypePos = p2?.text === ')' || p2?.text === '?' ||
               (p3?.type === 'id' && DECL_MOD.has(p3.text));
             if (!isTypePos) continue;
           }
@@ -6736,11 +6765,38 @@ function stripWithSwcRelaxations(source, errMsg, depth = 0) {
             k++;
           }
           if (dB === 0) {
-            // Validate every token inside `[ ... ]` is a balanced type expression; erase only malformed tuple-element labels/rest/optional markers
+            // Rewrite ONLY malformed named-tuple markers token-by-token so other syntax errors inside `[ ... ]` are preserved!
             const closeB = k - 1;
-            const inner = source.slice(toks[i + 3].start, toks[closeB].end);
-            if (/:\s*\.\.\.|\.\.\.[A-Za-z_$][\w$]*\?\s*:|\?\s*[\],]/.test(inner)) {
-              edits.push({ start: toks[i + 3].start, end: toks[closeB].end, text: 'any' + ' '.repeat(Math.max(0, toks[closeB].end - toks[i + 3].start - 3)) });
+            let nP = 0, nB = 0, nBr = 0, nA = 0;
+            for (let j = i + 4; j < closeB; j++) {
+              const tj = toks[j];
+              if (tj.text === '(') { nP++; continue; }
+              if (tj.text === ')') { nP--; continue; }
+              if (tj.text === '[') { nB++; continue; }
+              if (tj.text === ']') { nB--; continue; }
+              if (tj.text === '{') { nBr++; continue; }
+              if (tj.text === '}') { nBr--; continue; }
+              if (tj.text === '<') { nA++; continue; }
+              if (tj.text === '>') { if (nA > 0) nA--; continue; }
+              if (nP !== 0 || nB !== 0 || nBr !== 0 || nA !== 0) continue;
+              // `...label?: T` -> `...label: T`
+              if (tj.text === '...' && toks[j + 1]?.type === 'id' && toks[j + 2]?.text === '?' && toks[j + 3]?.text === ':') {
+                edits.push({ start: toks[j + 2].start, end: toks[j + 2].end, text: ' ' });
+                j += 3;
+                continue;
+              }
+              // `label: ...T` -> `...label: T`
+              if (tj.type === 'id' && (j === i + 4 || toks[j - 1].text === ',') &&
+                  toks[j + 1]?.text === ':' && toks[j + 2]?.text === '...') {
+                edits.push({ start: tj.start, end: tj.start, text: '...' });
+                edits.push({ start: toks[j + 2].start, end: toks[j + 2].end, text: '   ' });
+                j += 2;
+                continue;
+              }
+              // `label: T?` followed by `,` or `]` -> `label: T`
+              if (tj.text === '?' && (toks[j + 1]?.text === ',' || j + 1 === closeB)) {
+                edits.push({ start: tj.start, end: tj.end, text: ' ' });
+              }
             }
             i = closeB;
           }

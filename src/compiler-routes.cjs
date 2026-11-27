@@ -1009,6 +1009,19 @@ function hasNbspOutsideStrings(text) {
   return false;
 }
 
+function hasStaticPrototypeMember(source) {
+  if (!/\bstatic\s+prototype\b/.test(source)) return false;
+  const toks = require('./compiler-ts-lower.cjs').tokenize(source);
+  if (!toks) return false;
+  for (let i = 0; i < toks.length - 1; i++) {
+    if (toks[i].type === 'id' && toks[i].text === 'static' && toks[i - 1]?.text !== '.' &&
+        toks[i + 1].type === 'id' && toks[i + 1].text === 'prototype') {
+      return true;
+    }
+  }
+  return false;
+}
+
 function eraseModule(addon, source, file, format, parameterProperty) {
   if (hasEscapedKeyword(source, false) || hasNbspOutsideStrings(source) || hasTsRejectsInNodeStrip(source) || /(?:^|[;\r\n{])[ \t]*await[ \t]*;/.test(source)) return null;
   const work = normalizeAmbientModules(source);
@@ -1041,7 +1054,7 @@ function eraseModule(addon, source, file, format, parameterProperty) {
   if (format === 'preserve') {
     const valid = javascriptTextValidator();
     if (valid && valid(result.code)) return result;
-    if ((/\bimport\s*\.\s*meta\b/.test(result.code) || ((/\busing\b/.test(result.code) || /\bstatic\s+prototype\b/.test(result.code)) && require('./compiler-ts-lower.cjs').hasTopLevelModuleSyntax(result.code))) && !hasInvalidRegexLiteral(result.code)) {
+    if ((/\bimport\s*\.\s*meta\b/.test(result.code) || ((/\busing\b/.test(result.code) || hasStaticPrototypeMember(result.code)) && require('./compiler-ts-lower.cjs').hasTopLevelModuleSyntax(result.code))) && !hasInvalidRegexLiteral(result.code)) {
       return verifyRuntimeExports(result, file, addon, emitted);
     }
   }
@@ -1916,7 +1929,7 @@ function compile(input, options = {}) {
             const triedOrigMod = !directive && (property || annotated === true || addon.moduleMarker(source, true));
             const noBom = text.charCodeAt(0) === 0xFEFF && !text.startsWith('\uFEFF#!') ? text.slice(1) : text;
             const hasTsDirectiveComment = noBom.includes('// @') || noBom.includes('//@');
-            const extMod = directive || hasTsDirectiveComment || noBom.includes('declare module') || noBom.includes('declare global') || /\bexport[ \t]+(?:default|declare)\b/.test(noBom) || /\bstatic\s+prototype\b/.test(noBom);
+            const extMod = directive || hasTsDirectiveComment || noBom.includes('declare module') || noBom.includes('declare global') || /\bexport[ \t]+(?:default|declare)\b/.test(noBom) || hasStaticPrototypeMember(noBom);
             let result = (!triedOrigMod && extMod && !/[^\x00-\x7f]/.test(noBom) && /\b(?:import|export)\b/.test(noBom))
               ? eraseModule(addon, noBom, file, format, property) : null;
             if (!result && !triedOrigMod && !hasNbspOutsideStrings(noBom) && format === 'preserve') result = eraseScript(addon, noBom, Buffer.from(noBom), file, directive, true);
