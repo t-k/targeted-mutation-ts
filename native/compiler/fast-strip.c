@@ -269,6 +269,7 @@ typedef struct {
   uint32_t flushed;
   bool lowering;
   bool jsx;
+  bool has_jsx_tag;
   unsigned jsx_helpers;
   bool edited;
   bool failed;
@@ -368,6 +369,24 @@ static inline void ensure_out(fs_t *p) {
 
 static void blank_span(fs_t *p, uint32_t first, uint32_t last, bool sep) {
   if (first >= last || last > p->size) return;
+  if (p->lowering && first < p->flushed) { p->failed = true; return; }
+  /* In unmapped small/medium TSX files containing JSX tags, skip erased spans directly
+   * in the output stream instead of copying the file into `p->out` and writing spaces. */
+  if (p->has_jsx_tag && p->lb && !p->lb->record_runs && !p->edited && p->size <= 65536 && first >= p->flushed) {
+    for (uint32_t k = first; k < last; k++) {
+      if (p->src[k] >= 0x80U) { p->failed = true; return; }
+    }
+    if (!lb_flush_to(p, first)) { p->failed = true; return; }
+    if (sep) {
+      if (!BUF_LIT(p->lb, p->size, ";")) { p->failed = true; return; }
+    } else if (memchr(p->src + first, '\n', last - first) || memchr(p->src + first, '\r', last - first)) {
+      if (!BUF_LIT(p->lb, p->size, "\n")) { p->failed = true; return; }
+    } else {
+      if (!BUF_LIT(p->lb, p->size, " ")) { p->failed = true; return; }
+    }
+    p->flushed = last;
+    return;
+  }
   ensure_out(p);
   uint32_t i = first;
 #if defined(__aarch64__) || (defined(__x86_64__) && defined(__SSE2__))
@@ -1296,13 +1315,63 @@ static bool parse_interface_decl(fs_t *p, uint32_t erase_start, bool sep) {
   return true;
 }
 
+static bool parse_declare_stmt(fs_t *p, uint32_t erase_start, bool sep);
+
+/* Strict ambient block `{ ... }` for `declare global { ... }` and `declare module "x" { ... }`. */
+static bool parse_ambient_block(fs_t *p, uint32_t erase_start, bool sep, uint32_t depth) {
+  if (depth > 4 || p->has_jsx_tag || !tok_is_punc(p, '{')) return false;
+  if (!next_tok(p)) return false;
+  while (!tok_is_punc(p, '}')) {
+    if (tok_is_punc(p, ';')) { if (!next_tok(p)) return false; continue; }
+    if (tok_is_kw(p, KW_EXPORT)) {
+      if (!next_tok(p)) return false;
+      if (tok_is_punc(p, '{')) return false;
+    }
+    if (tok_is_kw(p, KW_INTERFACE)) {
+      if (!parse_interface_decl(p, p->tok.start, false)) return false;
+    } else if (tok_is_kw(p, KW_TYPE)) {
+      if (!parse_type_alias(p, p->tok.start, false)) return false;
+    } else if (tok_is_kw(p, KW_CONST) || tok_is_kw(p, KW_LET) || tok_is_kw(p, KW_VAR)) {
+      if (!next_tok(p) || tok_is_kw(p, KW_ENUM)) return false;
+      for (;;) {
+        if (is_ts_reserved_type_name(p)) return false;
+        if (!next_tok(p)) return false;
+        if (tok_is_punc(p, ':')) {
+          if (!next_tok(p) || !parse_type(p, 0)) return false;
+        }
+        if (tok_is_punc(p, ',')) { if (!next_tok(p)) return false; }
+        else break;
+      }
+      if (tok_is_punc(p, ';')) { if (!next_tok(p)) return false; }
+      else if (p->tok.kind != TOK_EOF && !p->tok.had_nl && !tok_is_punc(p, '}')) return false;
+    } else if (tok_is_kw(p, KW_FUNCTION)) {
+      if (!next_tok(p) || is_ts_reserved_type_name(p)) return false;
+      if (!next_tok(p)) return false;
+      if (tok_is_punc(p, '<') && !parse_type_params(p, 0)) return false;
+      if (!parse_type_param_list_in_parens(p, 0)) return false;
+      if (tok_is_punc(p, ':')) {
+        if (!next_tok(p) || !parse_return_type(p, 0)) return false;
+      }
+      if (tok_is_punc(p, ';')) { if (!next_tok(p)) return false; }
+      else if (p->tok.kind != TOK_EOF && !p->tok.had_nl && !tok_is_punc(p, '}')) return false;
+    } else {
+      return false;
+    }
+  }
+  const uint32_t erase_end = p->tok.end;
+  if (!next_tok(p)) return false;
+  blank_span(p, erase_start, erase_end, sep);
+  p->erased_any_stmt = true;
+  return true;
+}
+
 static bool parse_declare_stmt(fs_t *p, uint32_t erase_start, bool sep) {
   if (!next_tok(p)) return false;
   if (p->tok.had_nl) return false;
   if (tok_is_kw(p, KW_MODULE)) {
     if (!next_tok(p) || p->tok.kind != TOK_STR) return false;
     if (!next_tok(p)) return false;
-    if (tok_is_punc(p, '{')) return false; /* Ambient module block (even across newline) */
+    if (tok_is_punc(p, '{')) return parse_ambient_block(p, erase_start, sep, 0);
     uint32_t erase_end = p->prev_end;
     if (tok_is_punc(p, ';')) {
       erase_end = p->tok.end;
@@ -1316,24 +1385,8 @@ static bool parse_declare_stmt(fs_t *p, uint32_t erase_start, bool sep) {
   }
   if (p->tok.kind == TOK_ID && (p->tok.end - p->tok.start) == 6 &&
       memcmp(p->src + p->tok.start, "global", 6) == 0) {
-    if (!next_tok(p) || !tok_is_punc(p, '{')) return false;
     if (!next_tok(p)) return false;
-    while (!tok_is_punc(p, '}')) {
-      if (tok_is_punc(p, ';')) { if (!next_tok(p)) return false; continue; }
-      if (tok_is_kw(p, KW_INTERFACE)) { if (!parse_interface_decl(p, p->tok.start, false)) return false; }
-      else if (tok_is_kw(p, KW_TYPE)) { if (!parse_type_alias(p, p->tok.start, false)) return false; }
-      else if (tok_is_kw(p, KW_CONST) || tok_is_kw(p, KW_LET) || tok_is_kw(p, KW_VAR) || tok_is_kw(p, KW_FUNCTION)) {
-        /* Reuse declare stmt inner forms by stepping back? Even simpler: decline complex inner decls */
-        return false;
-      } else {
-        return false;
-      }
-    }
-    const uint32_t erase_end = p->tok.end;
-    if (!next_tok(p)) return false;
-    blank_span(p, erase_start, erase_end, sep);
-    p->erased_any_stmt = true;
-    return true;
+    return parse_ambient_block(p, erase_start, sep, 0);
   }
   if (tok_is_kw(p, KW_TYPE)) return parse_type_alias(p, erase_start, sep);
   if (tok_is_kw(p, KW_INTERFACE)) return parse_interface_decl(p, erase_start, sep);
@@ -1938,7 +1991,7 @@ static bool parse_and_lower_enum(fs_t *p, uint32_t decl_start, bool is_export,
   return true;
 }
 
-static bool fast_strip_body(fs_t *p, bool esm, bool stop_on_close_brace, uint32_t entry_depth, uint32_t jsx_depth);
+static bool fast_strip_body(fs_t *p, bool esm, bool stop_on_close_brace, uint32_t entry_depth, uint32_t entry_tpl_depth, uint32_t jsx_depth);
 
 static bool jsx_append_escaped(fs_lower_buf_t *dst, size_t hint, const uint8_t *s, size_t len) {
   size_t seg = 0;
@@ -2038,6 +2091,24 @@ static bool fast_strip_jsx_expr(fs_t *p, fs_lower_buf_t *dst, uint32_t jsx_depth
         expr_end = p->tok.end;
         if (!next_tok(p)) return false;
       }
+      /* Also allow simple 1-arg literal/id calls like `{ t("full_name") }` */
+      if (simple && tok_is_punc(p, '(')) {
+        if (!next_tok(p)) return false;
+        if (p->tok.kind == TOK_STR || p->tok.kind == TOK_NUM || p->tok.kind == TOK_ID) {
+          if (p->tok.kind == TOK_ID && p->src[p->tok.start] == '_') simple = false;
+          if (simple && next_tok(p) && tok_is_punc(p, ')')) {
+            expr_end = p->tok.end;
+            if (!next_tok(p)) return false;
+          } else {
+            simple = false;
+          }
+        } else if (tok_is_punc(p, ')')) {
+          expr_end = p->tok.end;
+          if (!next_tok(p)) return false;
+        } else {
+          simple = false;
+        }
+      }
     } else {
       if (!next_tok(p)) return false;
     }
@@ -2058,7 +2129,8 @@ static bool fast_strip_jsx_expr(fs_t *p, fs_lower_buf_t *dst, uint32_t jsx_depth
     p->lb = saved_lb; p->flushed = saved_flushed; p->lowering = saved_lowering;
     return false;
   }
-  const bool ok = fast_strip_body(p, false, true, p->depth, jsx_depth);
+  const uint32_t entry_tpl = (p->tok.kind == TOK_TPL_HEAD && p->tpl_depth > 0) ? (p->tpl_depth - 1U) : p->tpl_depth;
+  const bool ok = fast_strip_body(p, false, true, p->depth, entry_tpl, jsx_depth);
   p->lb = saved_lb;
   p->flushed = saved_flushed;
   p->lowering = saved_lowering;
@@ -2327,9 +2399,8 @@ fail:
 }
 
 /* Main single-pass scan over module tokens */
-static bool fast_strip_body(fs_t *p, bool esm, bool stop_on_close_brace, uint32_t entry_depth, uint32_t jsx_depth) {
+static bool fast_strip_body(fs_t *p, bool esm, bool stop_on_close_brace, uint32_t entry_depth, uint32_t entry_tpl_depth, uint32_t jsx_depth) {
   const uint8_t *source = p->src;
-  const uint32_t entry_tpl_depth = p->tpl_depth;
   fs_scopes_t *const sc = p->sc;
   uint8_t *const scope_kind = sc->scope_kind;
   uint32_t *const scope_paren = sc->scope_paren;
@@ -3231,14 +3302,30 @@ static bool fast_strip_body(fs_t *p, bool esm, bool stop_on_close_brace, uint32_
           }
         } else if (tok_is_punc(p, '{') || tok_is_punc(p, '[')) {
           uint32_t d = 1;
+          const uint32_t saved_tpl = p->tpl_depth;
+          uint32_t tpl_d[16];
           if (!next_tok(p)) return false;
           while (d > 0 && p->tok.kind != TOK_EOF) {
-            if (tok_is_punc(p, '{') || tok_is_punc(p, '[')) d++;
-            else if (tok_is_punc(p, '}') || tok_is_punc(p, ']')) d--;
-            else if (tok_is_kw(p, KW_AS) || tok_is_kw(p, KW_SATISFIES)) return false;
+            if (p->tok.kind == TOK_TPL_HEAD) {
+              if (p->tpl_depth == 0 || p->tpl_depth > 16) return false;
+              tpl_d[p->tpl_depth - 1] = d;
+            } else if (tok_is_punc(p, '}') && p->tpl_depth > saved_tpl && d == tpl_d[p->tpl_depth - 1]) {
+              p->tpl_depth--;
+              if (!scan_template_from(p, p->tok.start, false)) return false;
+              if (p->tok.kind == TOK_TPL_HEAD) {
+                if (p->tpl_depth == 0 || p->tpl_depth > 16) return false;
+                tpl_d[p->tpl_depth - 1] = d;
+              }
+            } else if (tok_is_punc(p, '{') || tok_is_punc(p, '[')) {
+              d++;
+            } else if (tok_is_punc(p, '}') || tok_is_punc(p, ']')) {
+              d--;
+            } else if (tok_is_kw(p, KW_AS) || tok_is_kw(p, KW_SATISFIES)) {
+              return false;
+            }
             if (!next_tok(p)) return false;
           }
-          if (d != 0) return false;
+          if (d != 0 || p->tpl_depth != saved_tpl) return false;
           if (tok_is_punc(p, ':')) {
             const uint32_t ann_start = p->tok.start;
             if (!next_tok(p) || !parse_type(p, 0)) return false;
@@ -3359,7 +3446,13 @@ static bool fast_strip_body(fs_t *p, bool esm, bool stop_on_close_brace, uint32_
         continue;
       }
       if (!tok_is_punc(p, ';') && !tok_is_punc(p, '}')) {
-        if (p->tok.kind == TOK_STR && (!esm || p->erased_any_stmt)) return false;
+        if (p->tok.kind == TOK_STR && (!esm || p->erased_any_stmt)) {
+          /* Object literal string property key `"foo": val` is not a directive prologue. */
+          fs_mark_t mstr = save_mark(p);
+          const bool is_obj_key = next_tok(p) && tok_is_punc(p, ':');
+          restore_mark(p, mstr);
+          if (!is_obj_key) return false;
+        }
         if (has_pending_export) { p->has_runtime_mod = true; has_pending_export = false; }
         p->has_runtime_stmt = true;
       }
@@ -3588,18 +3681,23 @@ normal_tok:
           }
           if (tsx_arrow_ok) {
             uint32_t d = 1;
+            uint32_t bd = 0;
             bool ok = true;
             if (!next_tok(p)) return false;
             while (d > 0 && p->tok.kind != TOK_EOF) {
               if (tok_is_punc(p, '(')) d++;
               else if (tok_is_punc(p, ')')) d--;
-              else if (d == 1 && tok_is_punc(p, ';')) { ok = false; break; }
+              else if (d == 1) {
+                if (tok_is_punc(p, '{')) bd++;
+                else if (tok_is_punc(p, '}') && bd > 0) bd--;
+                else if (bd == 0 && tok_is_punc(p, ';')) { ok = false; break; }
+              }
               if (d > 0 && !next_tok(p)) return false;
             }
             if (ok && d == 0 && next_tok(p)) {
               bool is_arrow = (p->tok.kind == TOK_ARROW);
               if (!is_arrow && tok_is_punc(p, ':')) {
-                if (next_tok(p) && parse_type(p, 0) && p->tok.kind == TOK_ARROW) is_arrow = true;
+                if (next_tok(p) && parse_return_type(p, 0) && p->tok.kind == TOK_ARROW) is_arrow = true;
               }
               if (is_arrow) {
                 restore_mark(p, m);
@@ -3847,6 +3945,7 @@ static char *fast_strip_entry(const uint8_t *source, uint32_t size, uint32_t fir
   if (lower_buf) {
     lower_buf->len = 0;
     lower_buf->run_count = 0;
+    lower_buf->type_only = false;
     lower_buf->failed = false;
     if (head_pad) {
       if (!buf_reserve(lower_buf, size, head_pad)) return NULL;
@@ -3856,6 +3955,19 @@ static char *fast_strip_entry(const uint8_t *source, uint32_t size, uint32_t fir
   if (jsx) {
     jsx_key_scratch.len = 0;
     jsx_key_scratch.failed = false;
+  }
+
+  bool has_jsx_tag = false;
+  if (jsx && size <= 65536) {
+    for (uint32_t ki = 0; ki + 1 < size; ki++) {
+      const uint8_t *found = memchr(source + ki, '/', size - ki - 1);
+      if (!found) break;
+      ki = (uint32_t)(found - source);
+      if (source[ki + 1] == '>' || (ki > 0 && source[ki - 1] == '<')) {
+        has_jsx_tag = true;
+        break;
+      }
+    }
   }
 
   fs_t p = {
@@ -3869,6 +3981,7 @@ static char *fast_strip_entry(const uint8_t *source, uint32_t size, uint32_t fir
     .flushed = 0,
     .lowering = false,
     .jsx = jsx,
+    .has_jsx_tag = has_jsx_tag,
     .jsx_helpers = 0,
     .edited = false,
     .failed = false,
@@ -3885,16 +3998,26 @@ static char *fast_strip_entry(const uint8_t *source, uint32_t size, uint32_t fir
   /* Decline leading directive prologues in JSX mode so import injection never precedes `'use client'`/`'use strict'` */
   if (jsx && p.tok.kind == TOK_STR) return NULL;
 
-  if (!fast_strip_body(&p, esm, false, 0, 0)) return NULL;
+  if (!fast_strip_body(&p, esm, false, 0, 0, 0)) return NULL;
   if (!esm && !p.has_runtime_mod) return NULL;
   if (!p.has_runtime_stmt) {
     /* Type-only `.mts` module: emit `export {};\n` directly when comment-free;
-     * otherwise decline so type_only_module compacts trivia and emits an empty source map. */
+     * when comments are present and `lower_buf` is provided, keep the comment-preserving buffer + `\nexport {};\n`
+     * and signal `lower_buf->type_only = true` so mapped callers emit an empty source map. */
     if (!esm || !p.erased_any_stmt) return NULL;
-    if (memchr(source, '/', size)) return NULL;
-    static const char marker[] = "export {};\n";
-    memcpy(p.out, marker, sizeof(marker) - 1);
-    *out_len = sizeof(marker) - 1;
+    if (lower_buf) lower_buf->type_only = true;
+    if (!memchr(source, '/', size)) {
+      static const char marker[] = "export {};\n";
+      memcpy(p.out, marker, sizeof(marker) - 1);
+      *out_len = sizeof(marker) - 1;
+      *edited = true;
+      return p.out;
+    }
+    if (!lower_buf) return NULL;
+    static const char marker[] = "\nexport {};\n";
+    ensure_out(&p);
+    memcpy(p.out + size, marker, sizeof(marker) - 1);
+    *out_len = (size_t)size + sizeof(marker) - 1;
     *edited = true;
     return p.out;
   }

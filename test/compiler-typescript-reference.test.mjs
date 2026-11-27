@@ -4486,3 +4486,48 @@ test('R69 fast-strip TSX automatic lowering, .mts BOM source maps, catch annotat
   assert.equal(jsAddon.exports.emitFastModule('export function f() { try {} catch (e: string) {} }\n'), undefined,
     'emitFastModule must decline catch (e: string)');
 });
+
+test('R70 fast-strip ambient block soundness, JSX template/call exprs, destructuring templates, and commented type-only maps', () => {
+  const pad = '// ' + 'x'.repeat(2100) + '\n';
+  // 1. Ambient block must reject reserved words as var/function names
+  for (const bad of [
+    'declare module "m" { const return: number; }\nexport const ok = 1;\n',
+    'declare module "m" { function return(): void; }\nexport const ok = 1;\n',
+    'declare global { const if: number; }\nexport const ok = 1;\n',
+  ]) {
+    const r = compile(bad, { file: 'r70-bad-amb.mts' });
+    assert.equal(r.code, null, `must reject invalid ambient decl: ${bad}`);
+  }
+  const rAmbOk = compile('declare module "m" { export const x: number; export function f(a: string): void; }\nexport const ok = 1;\n', { file: 'r70-amb-ok.mts' });
+  assert.equal(rAmbOk.backend, 'pulse');
+  assert.ok(!rAmbOk.code.includes('declare') && rAmbOk.code.includes('export const ok = 1'));
+
+  // 2. JSX template literal exprs, simple 1-arg calls, destructuring template defaults, object literal string keys
+  const tsxSrc = pad + [
+    'export const cfg = { "editor:mount": { a: 1 } } as const;',
+    'export class Base {}',
+    'export class Sub extends Base {',
+    '  constructor(p: { name?: string }) {',
+    '    super();',
+    '    const { name = `${"a"}-${"b"}` } = p;',
+    '    void name;',
+    '  }',
+    '  render(t: (k: string) => string, a: string) {',
+    '    return <div sandbox={`${a} allow-scripts`}>{t("hello")}</div>;',
+    '  }',
+    '}',
+  ].join('\n') + '\n';
+  const rTsx = compile(tsxSrc, { file: 'r70-app.tsx' });
+  assert.equal(rTsx.backend, 'pulse');
+  assert.ok(rTsx.code.includes('from "react/jsx-runtime"'));
+  assert.ok(rTsx.code.includes('sandbox:') && rTsx.code.includes('t("hello")'));
+
+  // 3. Commented type-only .mts preserves identical code between mapped and unmapped and emits empty mappings
+  const typeOnly = '// comment\ntype T = number;\n';
+  const rUnmapped = compile(typeOnly, { file: 'r70-typeonly.mts' });
+  const rMapped = compile(typeOnly, { file: 'r70-typeonly.mts', sourceMap: true });
+  assert.equal(rUnmapped.backend, 'pulse');
+  assert.equal(rMapped.backend, 'pulse');
+  assert.equal(rMapped.code, rUnmapped.code);
+  assert.equal(rMapped.sourceMap.mappings, '');
+});

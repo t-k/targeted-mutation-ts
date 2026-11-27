@@ -479,7 +479,7 @@ static size_t build_ascii_runs_map(const uint8_t *source, size_t size, const cha
 }
 
 struct LowerBufGuard {
-  fs_lower_buf_t lb{nullptr, 0, 0, nullptr, 0, 0, false, false};
+  fs_lower_buf_t lb{nullptr, 0, 0, nullptr, 0, 0, false, false, false};
   ~LowerBufGuard() { std::free(lb.data); std::free(lb.runs); }
 };
 
@@ -599,8 +599,8 @@ static void emit_fast_module_impl(const v8::FunctionCallbackInfo<v8::Value>& arg
     return;
   }
   v8::Local<v8::String> map_str;
-  if (out != lower_guard.lb.data && out_len < size) {
-    /* Compacted type-only `.mts` module (`export {};\n`) has empty mappings. */
+  if (lower_guard.lb.type_only || (out != lower_guard.lb.data && out_len < size)) {
+    /* Type-only `.mts` module (`export {};\n`) has empty mappings. */
     map_str = v8::String::Empty(isolate);
   } else {
     const uint32_t init_col = had_bom ? 1U : 0U;
@@ -633,7 +633,7 @@ static void emit_fast_ts(const v8::FunctionCallbackInfo<v8::Value>& args)
 
 static void emit_fast_tsx(const v8::FunctionCallbackInfo<v8::Value>& args)
 {
-  emit_fast_module_impl(args, false, false, true, 2048, 131072);
+  emit_fast_module_impl(args, false, false, true, 2048, 1048576);
 }
 #endif
 

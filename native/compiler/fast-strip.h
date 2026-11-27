@@ -19,6 +19,7 @@ typedef struct {
   uint32_t run_count;
   uint32_t run_cap;
   bool record_runs;
+  bool type_only;
   bool failed;
 } fs_lower_buf_t;
 

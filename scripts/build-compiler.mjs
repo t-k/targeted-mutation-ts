@@ -100,6 +100,7 @@ try {
               for (const f of [
                 'build/compiler-upstream/official-oxc-transform-UserSettings.tsx.json',
                 'build/compiler-upstream/official-oxc-transform-table.tsx.json',
+                'build/compiler-upstream/official-swc-next-App.tsx.json',
               ]) {
                 if (!fs.existsSync(f)) continue;
                 const rows = JSON.parse(fs.readFileSync(f, 'utf8'));
