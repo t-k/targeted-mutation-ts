@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.2
+
+- Persist settled Vitest warm verdicts into the durable `--checkpoint` file before entering isolated fallback:
+  - Poll and flush settled warm results to `--checkpoint` in `analyzeConventional` (even when `--progress` is omitted) prior to emitting `isolated fallback` progress updates, waiting for settled result events so `observed` diagnostics are never missed, propagating checkpoint write errors cleanly, and flushing any remaining completed events on `SIGINT`/`SIGTERM` before removing the temporary workspace.
+  - Respect `--verify-trials` verification sampling so warm results awaiting fresh comparison remain pending until verified, and include `--verify-trials` in the checkpoint campaign context hash so changing it never bypasses verification with unverified cached outcomes.
+- Preserve both `--project` and `--test` filters in Playwright source-rewrite fallbacks:
+  - Pass `--project=<name>` ahead of non-variadic `--output` and anchor resolved test file paths (`^...$`) across both source-rewrite and session paths so Playwright's variadic `--project` flag never consumes positional test paths, suffix-matching specs are excluded, leading-dash spec filenames are not parsed as CLI flags, and generated `--spec` witness files are included during witness verification runs.
+- Flag unconfirmed source application when Playwright falls back from `no-runtime-switch-observations` (such as an external daemon serving an unchanged prebuilt UI bundle):
+  - Preserve `sessionFallbackReason: "no-runtime-switch-observations"` on the report, scope source-rewrite confirmation to files with at least one `killed` trial or specific sites with verified `--spec` witnesses (`baselineWithWitness: "passed"` and `rewriteWithWitness: "failed"`), downgrade unconfirmed `survived` edits to `unevaluated` (`sourceVerdict: "survived"`, `sourceApplication: "unconfirmed"`, `evaluation: "incomplete"`) while suppressing false test-gap recommendations, and print a source-serving warning in text output.
+
 ## 0.9.1
 
 - Recover cleanly from Vitest fresh trial timeouts without aborting the remaining mutation campaign:
