@@ -42,6 +42,7 @@ Conventional mutation testing treats the test suite as a black box: it enumerate
 | Deterministic comparison trials (`M`) | `O(M · T)` (re-runs every mutant) | **`O(M_div · T)`** (`tmt-decide` skips provably identical trials) |
 | Runner/environment setup (`S`) | `O(M · (S + T))` (isolated re-runs) | **`O(S + M · T)`** (in-worker Vitest and warm Playwright sessions; [3–6× faster](docs/performance.md#mutation-runs-compared-with-strykerjs) on `--mutators full`) |
 - **Focuses on unguarded behavior, not syntactic noise.** Combining value-aware semantic rules with diff-level reversion (`--since REV --undo-changes`, down to individual added `&&`/`||` terms and object properties) tests the degrees of freedom your suite actually leaves open.
+- **Makes mutation testing practical even for E2E tests.** By focusing on targeted mutants and keeping Playwright's `webServer` and browser warm across trials, mutation testing becomes practical for Playwright E2E suites as well as unit tests.
 
 ![Why Targeted Mutation Testing](docs/why-targeted.svg)
 
