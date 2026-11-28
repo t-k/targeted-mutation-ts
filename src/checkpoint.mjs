@@ -1,18 +1,21 @@
 import { createHash } from 'node:crypto';
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, truncateSync, writeFileSync } from 'node:fs';
 import { dirname, relative, resolve, sep } from 'node:path';
+import { canonicalPath, copyPathIsExcluded, resolveCopyExclusions, resolveCopyInclusions } from './vitest.mjs';
 
 const CHECKPOINT_VERSION = 1;
 const REUSABLE_STATUSES = new Set(['killed', 'survived', 'timeout', 'unreached']);
 const CONTEXT_SKIP_DIRS = new Set(['.git', '.worktree', '.worktrees', 'node_modules', 'dist', 'build', 'coverage', 'docs.local', '.stryker-tmp']);
 const CONTEXT_FILE_RE = /(?:\.(?:[cm]?[jt]s|[jt]sx|json)|^(?:package\.json|tsconfig(?:\.[^.]+)?\.json|(?:vite|vitest|playwright)(?:\.[^.]+)*\.config\.[cm]?[jt]s))$/;
 
-function collectProjectContextFiles(root, dir = root, out = []) {
+function collectProjectContextFiles(root, dir = root, out = [], exclusions = [], inclusions = []) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     if (CONTEXT_SKIP_DIRS.has(entry.name) || entry.name.startsWith('.tmt-')) continue;
+    if (entry.isDirectory() && entry.name.startsWith('.')) continue;
     const full = resolve(dir, entry.name);
+    if (exclusions.length && copyPathIsExcluded(root, full, exclusions, inclusions)) continue;
     if (entry.isDirectory()) {
-      collectProjectContextFiles(root, full, out);
+      collectProjectContextFiles(root, full, out, exclusions, inclusions);
     } else if (entry.isFile() && CONTEXT_FILE_RE.test(entry.name)) {
       const size = statSync(full, { throwIfNoEntry: false })?.size ?? 0;
       if (size <= 2 * 1024 * 1024) {
@@ -28,11 +31,18 @@ function collectProjectContextFiles(root, dir = root, out = []) {
 export function computeCampaignContext(targets, options = {}, root = null) {
   const hash = createHash('sha256');
   if (root && existsSync(root)) {
-    const projectFiles = collectProjectContextFiles(root).sort();
+    const canonicalRoot = canonicalPath(root);
+    const exclusions = options['copy-exclude']?.length
+      ? resolveCopyExclusions(canonicalRoot, options['copy-exclude'], { onMissing: () => {} })
+      : [];
+    const inclusions = options['copy-include']?.length
+      ? resolveCopyInclusions(canonicalRoot, options['copy-include'], { onMissing: () => {} })
+      : [];
+    const projectFiles = collectProjectContextFiles(canonicalRoot, canonicalRoot, [], exclusions, inclusions).sort();
     for (const rel of projectFiles) {
       hash.update(rel.replaceAll(sep, '/'));
       hash.update('\0');
-      hash.update(readFileSync(resolve(root, rel)));
+      hash.update(readFileSync(resolve(canonicalRoot, rel)));
       hash.update('\0');
     }
   } else {

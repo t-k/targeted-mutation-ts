@@ -171,6 +171,7 @@ test('Vitest live checkpoint respects --verify-trials so sampled warm verdicts r
         '--mutators', 'full',
         '--lines', 'src/subject.ts:2-2',
         '--lines', 'src/subject.ts:12-12',
+        '--concurrency', '1',
         '--verify-trials', '10',
         '--timeout', '15',
         '--baseline-timeout', '15',

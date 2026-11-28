@@ -1,5 +1,5 @@
 import { mutatePattern } from './regex-mutations.mjs';
-import { tmtIgnoreLines } from './baseline.mjs';
+import { matchTmtIgnore, tmtIgnoreDirectives } from './baseline.mjs';
 import { classifyRoundingEquivalence } from './reachability.mjs';
 import { loadTypeScript } from './typescript-compiler.mjs';
 
@@ -118,7 +118,7 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
   // that node's line. The newest matching rule decides.
   const directive = /^\s?Stryker (disable|restore)(?: (next-line))? ([a-zA-Z, ]+)(?::(.+)?)?/;
   const hasDirectives = text.includes('Stryker ');
-  const tmtIgnored = tmtIgnoreLines(text, ts);
+  const tmtIgnored = tmtIgnoreDirectives(text, ts);
   let rule = null;
   let directivesReadTo = 0;
   function readDirectives(node) {
@@ -135,7 +135,8 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     }
   }
   function ignoreReason(name, line, from = rule) {
-    if (tmtIgnored.has(line)) return tmtIgnored.get(line);
+    const tmtReason = matchTmtIgnore(tmtIgnored, line, name);
+    if (tmtReason !== undefined) return tmtReason;
     for (let current = from; current; current = current.previous) {
       if ((current.line === undefined || current.line === line) && (current.names.includes(name.toLowerCase()) || current.names.includes('all'))) {
         return current.reason;

@@ -3,7 +3,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { loadTypeScript } from './typescript-compiler.mjs';
 
 const BASELINE_VERSION = 2;
-const TMT_IGNORE_RE = /^\s*tmt:ignore(?:\s+(.*))?$/i;
+const TMT_IGNORE_RE = /^\s*tmt:ignore(?:\[([^\]]+)\])?(?:\s+(.*))?$/i;
 
 function computeLineStarts(text) {
   const starts = [0];
@@ -24,9 +24,9 @@ function lineOfOffset(starts, offset) {
   return low;
 }
 
-// Parse `// tmt:ignore [reason]` and `/* tmt:ignore [reason] */` comments using the TypeScript AST
-// so occurrences inside template literals, strings, or after regex literals are handled accurately.
-export function tmtIgnoreLines(text, ts = loadTypeScript(), file = 'source.tsx') {
+// Parse `// tmt:ignore [reason]`, `// tmt:ignore[rule1, rule2] [reason]`, and block-comment forms
+// using the TypeScript AST so occurrences inside strings, template literals, or after regex literals are handled accurately.
+export function tmtIgnoreDirectives(text, ts = loadTypeScript(), file = 'source.tsx') {
   const ignored = new Map();
   if (!/tmt:ignore/i.test(text)) return ignored;
 
@@ -43,7 +43,12 @@ export function tmtIgnoreLines(text, ts = loadTypeScript(), file = 'source.tsx')
       : text.slice(range.pos + 2, range.end - 2);
     const match = TMT_IGNORE_RE.exec(raw.trim());
     if (!match) return;
-    const reason = (match[1] ?? '').trim() || 'Ignored using tmt:ignore';
+    const rawRules = match[1];
+    const rules = rawRules
+      ? rawRules.split(',').map(r => r.trim().toLowerCase()).filter(Boolean)
+      : null;
+    if (rawRules && !rules.length) return;
+    const reason = (match[2] ?? '').trim() || 'Ignored using tmt:ignore';
     const startLine = lineOfOffset(starts, range.pos);
     const endLine = lineOfOffset(starts, Math.max(range.pos, range.end - 1));
     const linePrefix = text.slice(starts[startLine], range.pos);
@@ -51,7 +56,9 @@ export function tmtIgnoreLines(text, ts = loadTypeScript(), file = 'source.tsx')
     const lineSuffix = text.slice(range.end, nextLineStart).replace(/\r?\n$/, '');
     const standalone = linePrefix.trim().length === 0 && lineSuffix.trim().length === 0;
     const targetLine = standalone ? endLine + 1 : endLine;
-    ignored.set(targetLine, reason);
+    const list = ignored.get(targetLine) ?? [];
+    list.push({ rules, reason });
+    ignored.set(targetLine, list);
   };
 
   const inspectPosition = pos => {
@@ -66,6 +73,29 @@ export function tmtIgnoreLines(text, ts = loadTypeScript(), file = 'source.tsx')
   })(sf);
 
   return ignored;
+}
+
+export function matchTmtIgnore(directives, line, ruleName) {
+  const list = directives?.get?.(line);
+  if (!list?.length) return undefined;
+  const full = String(ruleName ?? '').toLowerCase();
+  const base = full.replace(/\/v\d+$/, '');
+  for (const entry of list) {
+    if (entry.rules === null) return entry.reason;
+    if (entry.rules.includes('all') || entry.rules.includes(full) || (base && entry.rules.includes(base))) {
+      return entry.reason;
+    }
+  }
+  return undefined;
+}
+
+export function tmtIgnoreLines(text, ts = loadTypeScript(), file = 'source.tsx') {
+  const directives = tmtIgnoreDirectives(text, ts, file);
+  const lines = new Map();
+  for (const [line, list] of directives) {
+    lines.set(line, list[list.length - 1].reason);
+  }
+  return lines;
 }
 
 function normalizePosixPath(file) {

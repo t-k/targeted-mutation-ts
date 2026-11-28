@@ -565,3 +565,40 @@ test('Follow-up feedback: isolated fallback text summary, parallel isolated exec
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('Go-feedback parity: rule-scoped // tmt:ignore[rule] and checkpoint fingerprint ignoring hidden dirs and copyExclude', async () => {
+  const { computeCampaignContext } = await import('../src/checkpoint.mjs');
+  const src = [
+    'export const ok = (limit: number) => limit > 50; // tmt:ignore[EqualityOperator] boundary equivalent',
+    'export const label = (s: string) => s === ""; // tmt:ignore[StringLiteral, equality-constant] intentional',
+  ].join('\n') + '\n';
+  const mutations = collectMutations(src, 'src/rules.ts', { targeted: true });
+  const line0Eq = mutations.filter(m => m.start < src.indexOf('\n') && m.name === 'EqualityOperator');
+  const line0Cond = mutations.filter(m => m.start < src.indexOf('\n') && m.name === 'ConditionalExpression');
+  assert.ok(line0Eq.length > 0 && line0Eq.every(m => m.ignored === 'boundary equivalent'));
+  assert.ok(line0Cond.length > 0 && line0Cond.every(m => m.ignored === undefined));
+
+  const line1Str = mutations.filter(m => m.start > src.indexOf('\n') && m.name === 'StringLiteral');
+  const line1EqConst = mutations.filter(m => m.start > src.indexOf('\n') && m.name === 'equality-constant/v1');
+  assert.ok(line1Str.length > 0 && line1Str.every(m => m.ignored === 'intentional'));
+  assert.ok(line1EqConst.length > 0 && line1EqConst.every(m => m.ignored === 'intentional'));
+
+  // Checkpoint context hash ignores hidden directories like `.claude/worktrees/` and `copyExclude` paths.
+  const dir = mkdtempSync(join(tmpdir(), 'tmt-ckpt-hidden-'));
+  try {
+    mkdirSync(join(dir, 'src'), { recursive: true });
+    mkdirSync(join(dir, '.claude/worktrees/other'), { recursive: true });
+    mkdirSync(join(dir, 'tmp-out'), { recursive: true });
+    writeFileSync(join(dir, 'src/a.ts'), 'export const a = 1;\n');
+    writeFileSync(join(dir, '.claude/worktrees/other/draft.ts'), 'export const x = 1;\n');
+    writeFileSync(join(dir, 'tmp-out/gen.ts'), 'export const g = 1;\n');
+
+    const ctx1 = computeCampaignContext([], { 'copy-exclude': ['tmp-out'] }, dir);
+    writeFileSync(join(dir, '.claude/worktrees/other/draft.ts'), 'export const x = 999;\n');
+    writeFileSync(join(dir, 'tmp-out/gen.ts'), 'export const g = 999;\n');
+    const ctx2 = computeCampaignContext([], { 'copy-exclude': ['tmp-out'] }, dir);
+    assert.equal(ctx1, ctx2, 'edits in .claude/worktrees or copyExclude must not invalidate checkpoint context');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

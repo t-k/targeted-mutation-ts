@@ -5,8 +5,10 @@
 - Parallelize Vitest isolated fallback trials across up to `--concurrency` reusable serial fresh lanes when `--isolated-trials` is not forced and the project does not configure `globalSetup` or `fileParallelism: false`, and print a one-line `Isolated fallback (N): ...` breakdown in text output.
 - Stop hiding surviving `nullish-fallback/v1` (`??` -> `||`) edits as `ignored` solely because tests never passed a falsy primitive; rely on TypeScript type-based equivalence (`--type-check`) for truly non-falsy object types and report unobserved falsy inputs as `INPUT GAP`.
 - Normalize JSON `mutants[]` entries across all runners and profiles so every mutant includes a unique `id`, a `rule` name (falling back to `mutatorName` for built-in syntax mutators), and an exact `original` snippet matching its `edit` byte span while keeping existing `site`, `mutatorName`, and `operator` fields for backward compatibility.
+- Support rule-scoped inline suppression comments (`// tmt:ignore[rule1, rule2] <reason>` matching either full rule names like `comparison-boundary/v1` or base names like `comparison-boundary`, while keeping bare `// tmt:ignore <reason>` for the whole line).
+- Exclude hidden directories (such as `.claude/worktrees/`) and `--copy-exclude` paths from `--checkpoint` campaign context hashing so unrelated worktrees or build artifacts do not invalidate resumable checkpoints.
 - Fix Node.js 26 LTS compatibility in the native compiler validation addon (`v8::Isolate::GetCurrent()`) and compiler certification tests when `module.stripTypeScriptTypes(..., { mode: 'transform' })` falls back to TypeScript.
-- Document default exit codes (`0` with gaps, `2` with `--fail-on-gaps` / `"failOnGaps": true`) and pnpm `minimumReleaseAge` guidance in `README.md`.
+- Document default exit codes (`0` with gaps, `2` with `--fail-on-gaps` / `"failOnGaps": true`), external-endpoint mutation safety, and pnpm `minimumReleaseAge` guidance in `README.md`.
 
 ## 0.10.0
 
