@@ -64,6 +64,7 @@ export function computeCampaignContext(targets, options = {}, root = null) {
     ...(options['baseline-workers'] !== undefined ? { baselineWorkers: options['baseline-workers'] } : {}),
     copyExclude: options['copy-exclude'] ?? null,
     isolatedTrials: !!options['isolated-trials'],
+    ...(options['verify-trials'] ? { verifyTrials: options['verify-trials'] } : {}),
   }));
   return hash.digest('hex');
 }

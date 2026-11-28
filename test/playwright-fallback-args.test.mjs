@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
-import { buildPlaywrightTestArgs, testFilters } from '../src/playwright.mjs';
+import { buildPlaywrightTestArgs, exactTestFilters, testFilters } from '../src/playwright.mjs';
 
 test('buildPlaywrightTestArgs separates variadic --project flags from positional test filters', () => {
   const single = buildPlaywrightTestArgs({
@@ -34,4 +37,29 @@ test('buildPlaywrightTestArgs separates variadic --project flags from positional
 test('testFilters escapes regex metacharacters in relative paths', () => {
   const filters = testFilters(process.cwd(), ['package.json']);
   assert.deepEqual(filters, ['package\\.json']);
+});
+
+test('exactTestFilters anchors resolved paths to prevent suffix matches and leading-dash CLI flag collisions', () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'tmt-pw-exact-filter-')));
+  try {
+    mkdirSync(join(root, 'e2e'), { recursive: true });
+    mkdirSync(join(root, 'nested/e2e'), { recursive: true });
+    writeFileSync(join(root, 'e2e/selected.spec.ts'), '');
+    writeFileSync(join(root, 'nested/e2e/selected.spec.ts'), '');
+    writeFileSync(join(root, '-dash.spec.ts'), '');
+
+    const [topFilter, dashFilter] = exactTestFilters(root, ['e2e/selected.spec.ts', '-dash.spec.ts']);
+    assert.ok(topFilter.startsWith('^') && topFilter.endsWith('$'));
+    assert.ok(dashFilter.startsWith('^') && dashFilter.endsWith('$'));
+    assert.ok(!dashFilter.startsWith('-'), 'anchored filter must not start with a dash');
+
+    const topRe = new RegExp(topFilter);
+    assert.ok(topRe.test(join(root, 'e2e/selected.spec.ts').replaceAll('\\', '/')));
+    assert.ok(!topRe.test(join(root, 'nested/e2e/selected.spec.ts').replaceAll('\\', '/')));
+
+    const dashRe = new RegExp(dashFilter);
+    assert.ok(dashRe.test(join(root, '-dash.spec.ts').replaceAll('\\', '/')));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });

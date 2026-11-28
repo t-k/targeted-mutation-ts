@@ -564,6 +564,17 @@ test('must not be selected', async () => {
 });
 `);
 
+    // Nested spec sharing the exact same suffix (`e2e/selected.spec.ts`) also intentionally fails
+    // to verify exact anchored path filtering.
+    mkdirSync(join(root, 'e2e/nested/e2e'), { recursive: true });
+    writeFileSync(join(root, 'e2e/nested/e2e/selected.spec.ts'), `
+import { expect, test } from '@playwright/test';
+
+test('nested suffix match must not be selected', async () => {
+  expect(false).toBe(true);
+});
+`);
+
     // 1. Fallback with single --project and single --test: baseline passes with exactly 1 test in 1 project.
     const singleFallbackRun = spawnSync(process.execPath, [
       'bin/tmt.mjs', 'analyze', root, 'src/badge.ts',

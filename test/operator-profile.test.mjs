@@ -147,6 +147,74 @@ test('--audit and sessions that cannot start fall back to one source rewrite per
   assert.equal(confirmedFallback.mutants[0].status, 'survived');
   assert.equal(confirmedFallback.diagnostics.length, 1);
 
+  // Mixed delivery paths: a kill in `src/api.ts` does NOT confirm an unrelated frozen bundle file `src/Overview.tsx`.
+  const mixedFilesRewrite = {
+    ...allSurvivedRewrite,
+    mutants: [
+      { site: 'api1', location: { file: 'src/api.ts', line: 5, column: 1, start: 0, end: 5 }, rule: 'comparison-boundary/v1', edit: [0, 5], replacement: '<', status: 'killed', evidence: 'reexecuted' },
+      { site: 'ui1', location: { file: 'src/Overview.tsx', line: 10, column: 1, start: 0, end: 5 }, rule: 'comparison-boundary/v1', edit: [0, 5], replacement: '>', status: 'survived', evidence: 'reexecuted' },
+    ],
+    diagnostics: [
+      { kind: 'SURVIVED', site: 'ui1', location: { file: 'src/Overview.tsx', line: 10, column: 1 }, rule: 'comparison-boundary/v1', mutations: [{ rule: 'comparison-boundary/v1', replacement: '>' }] },
+    ],
+  };
+  const mixedFilesReport = await analyzeOperators('.', [], { ...options, runner: 'playwright' }, {
+    analyze: () => mixedFilesRewrite,
+    analyzePlaywrightSession: async () => ({ evaluation: 'unsupported_session', unsupportedReason: 'no-runtime-switch-observations' }),
+    prepareAnalysis: () => ({ report: focusedReport }),
+    completeAnalysis: () => focusedReport,
+    analyzeConventional: async () => sessionReport,
+  });
+  assert.equal(mixedFilesReport.sourceApplication, 'unconfirmed');
+  assert.equal(mixedFilesReport.evaluation, 'incomplete');
+  assert.equal(mixedFilesReport.mutants.find(m => m.site === 'api1').status, 'killed');
+  assert.equal(mixedFilesReport.mutants.find(m => m.site === 'ui1').status, 'unevaluated');
+  assert.equal(mixedFilesReport.diagnostics.length, 0);
+
+  // Verified `--spec` witness (`baselineWithWitness: 'passed'` + `rewriteWithWitness: 'failed'`) establishes application even with 0 kills.
+  const verifiedWitnessRewrite = {
+    ...allSurvivedRewrite,
+    diagnostics: [
+      {
+        kind: 'SURVIVED',
+        site: 's1',
+        location: { file: 'src/Overview.tsx', line: 10, column: 1 },
+        rule: 'comparison-boundary/v1',
+        verification: { baselineWithWitness: 'passed', rewriteWithWitness: 'failed' },
+      },
+    ],
+  };
+  const verifiedWitnessReport = await analyzeOperators('.', [], { ...options, runner: 'playwright' }, {
+    analyze: () => verifiedWitnessRewrite,
+    analyzePlaywrightSession: async () => ({ evaluation: 'unsupported_session', unsupportedReason: 'no-runtime-switch-observations' }),
+    prepareAnalysis: () => ({ report: focusedReport }),
+    completeAnalysis: () => focusedReport,
+    analyzeConventional: async () => sessionReport,
+  });
+  assert.equal(verifiedWitnessReport.sourceApplication, undefined);
+  assert.equal(verifiedWitnessReport.evaluation, 'evaluated');
+  assert.equal(verifiedWitnessReport.mutants[0].status, 'survived');
+  assert.equal(verifiedWitnessReport.diagnostics.length, 1);
+
+  // When every fallback trial times out (0 kills, 0 survivors), retain `timeout` status while flagging unconfirmed application.
+  const allTimeoutRewrite = {
+    ...allSurvivedRewrite,
+    mutants: [
+      { site: 't1', location: { file: 'src/Overview.tsx', line: 10, column: 1, start: 0, end: 5 }, rule: 'comparison-boundary/v1', edit: [0, 5], replacement: '>', status: 'timeout', evidence: 'reexecuted' },
+    ],
+    diagnostics: [],
+  };
+  const allTimeoutReport = await analyzeOperators('.', [], { ...options, runner: 'playwright' }, {
+    analyze: () => allTimeoutRewrite,
+    analyzePlaywrightSession: async () => ({ evaluation: 'unsupported_session', unsupportedReason: 'no-runtime-switch-observations' }),
+    prepareAnalysis: () => ({ report: focusedReport }),
+    completeAnalysis: () => focusedReport,
+    analyzeConventional: async () => sessionReport,
+  });
+  assert.equal(allTimeoutReport.sourceApplication, 'unconfirmed');
+  assert.equal(allTimeoutReport.evaluation, 'incomplete');
+  assert.equal(allTimeoutReport.mutants[0].status, 'timeout');
+
   const unsupported = runners(received => received.mutators === 'targeted' ? rewritten : focusedReport,
     { ...sessionReport, evaluation: 'baseline_error', baseline: { status: 'error', output: 'The Vitest session requires Vitest 4, found 3.2.4' } });
   const fallback = await analyzeOperators('.', [], options, unsupported);

@@ -146,16 +146,17 @@ export async function analyzeConventional(project, files, options) {
     list.push(mutant);
   }
   const persistedSessionIds = new Set();
-  let liveObserved = null;
   let liveOutputPath = null;
   let liveSessionFinished = false;
   const syncLiveCheckpoint = currentEvents => {
     if (!ckpt || !currentEvents?.length) return;
     const base = currentEvents.find(event => event.baseline)?.baseline;
     if (base?.status !== 'passed') return;
-    if (!liveObserved) {
-      liveObserved = currentEvents.find(event => event.observed)?.observed ?? {};
-    }
+    // Wait until at least one settled mutant event is present: `standard-session.mjs` always appends
+    // `{ observed }` (when non-empty) before any `{ id }` result, so reading `observed` once a result
+    // exists avoids caching `{}` during the gap between `{ baseline }` and `{ observed }`.
+    if (!currentEvents.some(event => event.id !== undefined)) return;
+    const liveObserved = currentEvents.find(event => event.observed)?.observed ?? {};
     for (const event of currentEvents) {
       if (event.id === undefined || persistedSessionIds.has(event.id)) continue;
       persistedSessionIds.add(event.id);
@@ -226,6 +227,7 @@ export async function analyzeConventional(project, files, options) {
     if (options.signal?.aborted) sessionAbort.abort();
     let finished = false;
     let extrasError = null;
+    let checkpointError = null;
     if (awaitsExtras) {
       Promise.resolve(options.extras).then(list => list ?? [], () => []).then(list => {
         if (finished || sessionAbort.signal.aborted) return;
@@ -269,7 +271,15 @@ export async function analyzeConventional(project, files, options) {
         const current = readEvents(output);
         // Flush any newly settled session verdicts to the durable checkpoint BEFORE emitting
         // isolated-fallback progress so an immediate SIGINT always sees settled warm results.
-        syncLiveCheckpoint(current);
+        try {
+          syncLiveCheckpoint(current);
+        } catch (writeError) {
+          if (!finished && !sessionAbort.signal.aborted) {
+            checkpointError = writeError;
+            sessionAbort.abort();
+          }
+          return;
+        }
         if (!options.onProgress) return;
         if (!baselineReported) {
           const base = current.find(event => event.baseline)?.baseline;
@@ -327,6 +337,7 @@ export async function analyzeConventional(project, files, options) {
       options.signal?.removeEventListener('abort', onAbort);
     }
     if (extrasError) throw extrasError;
+    if (checkpointError) throw checkpointError;
     const events = readEvents(output);
     const completed = run.status === 0 && events.at(-1)?.complete === true;
     const sessionFailure = completed ? undefined : formatSessionFailure({ runnerLabel: 'Vitest', events, run });

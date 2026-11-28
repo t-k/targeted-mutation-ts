@@ -291,6 +291,22 @@ export default defineConfig({
     assert.ok(entries.some(e => e.event === 'campaign_completed'));
     const outcomeKeys = entries.filter(e => e.event === 'outcome').map(e => e.key);
     assert.equal(outcomeKeys.length, new Set(outcomeKeys).size, 'checkpoint must not contain duplicate outcome keys');
+
+    // Resuming with a different --verify-trials value must invalidate the unverified checkpoint context.
+    const verifyRes = spawnSync(process.execPath, [
+      'bin/tmt.mjs', 'analyze', root, 'src/subject.ts',
+      '--mutators', 'full',
+      '--isolated-trials',
+      '--verify-trials', '2',
+      '--timeout', '2',
+      '--baseline-timeout', '15',
+      '--checkpoint', ckptPath,
+      '--format', 'json',
+    ], { encoding: 'utf8', timeout: 120_000 });
+    assert.equal(verifyRes.status, 0, verifyRes.stderr);
+    const verifiedReport = JSON.parse(verifyRes.stdout);
+    assert.equal(verifiedReport.checkpoint?.resumed, false);
+    assert.equal(verifiedReport.checkpoint?.reused, 0);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

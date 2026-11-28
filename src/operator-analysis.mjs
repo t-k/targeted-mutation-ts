@@ -413,12 +413,34 @@ function annotatePlaywrightSourceRewriteFallback(report, fallbackReason) {
   if (report.evaluation === 'baseline_error' || report.evaluation === 'no_sites' || !mutants.length) {
     return withReason;
   }
-  const applicationEstablished = mutants.some(mutant => mutant.status === 'killed');
-  if (applicationEstablished) return withReason;
+  const confirmedFiles = new Set();
+  const confirmedSites = new Set();
+  for (const mutant of mutants) {
+    if (mutant.status === 'killed') {
+      const file = mutant.location?.file;
+      if (file) confirmedFiles.add(file);
+      const key = mutant.site ?? mutant.id;
+      if (key) confirmedSites.add(key);
+    }
+  }
+  for (const gap of report.diagnostics ?? []) {
+    if (gap.verification?.baselineWithWitness === 'passed' && gap.verification?.rewriteWithWitness === 'failed') {
+      if (gap.site) confirmedSites.add(gap.site);
+      if (gap.location?.file) confirmedFiles.add(gap.location.file);
+    }
+  }
+  const isConfirmed = mutant => {
+    const key = mutant.site ?? mutant.id;
+    const file = mutant.location?.file;
+    return (key && confirmedSites.has(key)) || (file && confirmedFiles.has(file));
+  };
+  let hasUnconfirmedMutant = false;
   const unconfirmedSites = new Set();
   const updatedMutants = mutants.map(mutant => {
-    if (mutant.status !== 'survived') return mutant;
+    if (isConfirmed(mutant)) return mutant;
+    hasUnconfirmedMutant = true;
     const key = mutant.site ?? mutant.id;
+    if (mutant.status !== 'survived') return mutant;
     if (key) unconfirmedSites.add(key);
     return {
       ...mutant,
@@ -427,7 +449,7 @@ function annotatePlaywrightSourceRewriteFallback(report, fallbackReason) {
       statusReason: 'No runtime switch observations were recorded and no source-rewrite edit changed test behavior; edits may not have reached the running app',
     };
   });
-  if (!unconfirmedSites.size) return withReason;
+  if (!hasUnconfirmedMutant) return withReason;
   const updatedDiagnostics = (report.diagnostics ?? []).filter(gap => !unconfirmedSites.has(gap.site));
   return {
     ...withReason,

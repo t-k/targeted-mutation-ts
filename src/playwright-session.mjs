@@ -12,7 +12,7 @@ import {
   effectsFromPlaywrightRecords,
   indexPlaywrightBaseline,
 } from './playwright-plan.mjs';
-import { createPlaywrightConfigWrapper, readPidStartSignature, testFilters } from './playwright.mjs';
+import { createPlaywrightConfigWrapper, exactTestFilters, readPidStartSignature } from './playwright.mjs';
 import { sampleSettled } from './standard-plan.mjs';
 import { sameObservations } from './trace-buffer.mjs';
 import { failedTests } from './vitest-reporter.mjs';
@@ -307,7 +307,7 @@ async function runSession() {
     return;
   }
 
-  const initialLocations = testFilters(workspace, tests);
+  const initialLocations = exactTestFilters(workspace, tests);
 
   const executePass = async ({ phase, activeMutant, shift = 0, hitLimit, testIds, locations, maxFailures, timeoutMs = runTimeout }) => {
     rmSync(recordsFile, { force: true });

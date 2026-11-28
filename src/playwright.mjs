@@ -199,6 +199,11 @@ export function classifyPlaywright(report, exitCode, workspace) {
 export const testFilters = (root, tests = []) => [...new Set(tests.map(file => relative(root, inside(root, file))))]
   .map(file => file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
 
+// Exact anchored filters match only the resolved workspace paths (preventing suffix matches like
+// `nested/e2e/foo.spec.ts` and leading-dash filenames like `-foo.spec.ts` from being parsed as CLI flags).
+export const exactTestFilters = (root, tests = []) => [...new Set(tests.map(file => inside(root, file).replaceAll('\\', '/')))]
+  .map(file => `^${file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`);
+
 export function buildPlaywrightTestArgs({ wrapper, timeout = 60_000, outputDir, projects = [], filters = [] }) {
   return [
     'test',
@@ -225,7 +230,7 @@ export function runPlaywright(root, temp, { config, projects = [], tests = [], t
       timeout,
       outputDir: resolve(temp, 'results'),
       projects,
-      filters: testFilters(root, tests),
+      filters: exactTestFilters(root, tests),
     }),
   ], {
     cwd: root, encoding: 'utf8', timeout: timeout + 5000, maxBuffer: 4 * 1024 * 1024,
