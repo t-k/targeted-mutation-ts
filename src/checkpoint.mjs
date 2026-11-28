@@ -161,6 +161,7 @@ export function openCheckpoint(path, context, metadata = {}) {
         status: outcome.status,
         ...(outcome.statusReason ? { statusReason: outcome.statusReason } : {}),
         ...(outcome.tests ? { tests: outcome.tests } : {}),
+        ...(outcome.reachedTests?.length ? { reachedTests: outcome.reachedTests } : {}),
         ...(outcome.evidence ? { evidence: outcome.evidence } : {}),
         ...(diagnostic ? { diagnostic } : {}),
       };

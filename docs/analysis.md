@@ -195,6 +195,53 @@ The fixture accepts a loopback port from `PORT`. The integration tests and the e
 
 Playwright needs a loopback `webServer` command (`url` or `port` on `localhost`, `127.0.0.1`, or `[::1]`) rooted in each trial copy. If `use.baseURL` is set, its port and protocol must match a managed loopback server. Monorepo subpackages without a local `node_modules` automatically inherit hoisted ancestor `node_modules` in trial copies. The tool resolves Playwright from the target workspace. Server commands and tests must exercise the copied sources, including any paths they construct dynamically. A witness can set `witnessDirectory` when the relevant project collects tests outside the directory of the first passing baseline test.
 
+### External daemons and embedded UI bundles
+
+When an application embeds a prebuilt frontend bundle inside an external backend daemon (for example a Rust or Go binary launched from `globalSetup`), the Playwright baseline can still pass while executing the prebuilt assets instead of the instrumented files in the temporary trial copy.
+
+Check these report fields to verify that Playwright exercised the mutated sources in a warm session:
+
+- `operatorExecution`: should be `"session"`. If it falls back to `"source-rewrite"` after a passing baseline, the browser and managed `webServer` observed no runtime switch activity from the copied sources.
+- `trials`: `trials.inWorker + trials.isolated` should be greater than `0`.
+- `mutants[*].status` and `mutants[*].reachedTests`: if every selected edit is `unreached` (zero hits) despite tests exercising that screen, Playwright is likely talking to prebuilt assets or an already-running server outside the trial copy.
+
+To run mutations against an app backed by an external daemon, use a managed `webServer` script inside the repository that starts the external backend on a local port, serves (or rebuilds) the trial copy's UI sources through a dev server such as Vite, proxies API/WebSocket routes to the backend, and terminates the backend cleanly on exit:
+
+```js
+// scripts/playwright-mutation-server.mjs
+import { spawn } from 'node:child_process';
+import { createServer } from 'vite';
+
+const uiPort = Number(process.env.PORT ?? 4173);
+const apiPort = Number(process.env.BACKEND_PORT ?? 4174);
+const daemon = spawn(process.env.APP_DAEMON_BIN, ['--listen', `127.0.0.1:${apiPort}`], {
+  stdio: 'inherit',
+});
+
+const vite = await createServer({
+  server: {
+    host: '127.0.0.1',
+    port: uiPort,
+    strictPort: true,
+    proxy: { '/api': `http://127.0.0.1:${apiPort}` },
+  },
+});
+await vite.listen();
+
+const shutdown = async () => {
+  await vite.close().catch(() => {});
+  if (!daemon.killed) daemon.kill('SIGTERM');
+  process.exit(0);
+};
+process.once('SIGINT', shutdown);
+process.once('SIGTERM', shutdown);
+daemon.once('exit', code => {
+  vite.close().finally(() => process.exit(code ?? 1));
+});
+```
+
+Point a mutation-specific Playwright config's `webServer` at that wrapper (`command: 'node scripts/playwright-mutation-server.mjs'`, `url: 'http://127.0.0.1:' + port`, `reuseExistingServer: false`) and pass it with `--config`. Keep the wrapper under the project root so it runs inside each temporary trial copy and compiles the mutated UI sources directly.
+
 ## Project configuration
 
 Project defaults can be stored in `targeted-mutation.config.json`, `targeted-mutation.config.mjs` (default export), or the `"targetedMutation"` field of `package.json` (pass `--no-config` to ignore them; CLI flags always take precedence):

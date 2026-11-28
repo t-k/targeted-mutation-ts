@@ -1,0 +1,8 @@
+Runner: vitest, playwright
+Outcome: FreshTimeoutThenKilled, SessionCrashLargeStderr, SurvivorNoGap, SurvivorWithGap, KilledComparison, AllUnreached
+Checkpoint: Disabled, EnabledFresh, EnabledResume
+OutputFormat: Text, Json
+
+IF [Outcome] IN {"FreshTimeoutThenKilled", "SessionCrashLargeStderr"} THEN [Runner] = "vitest";
+IF [Outcome] IN {"SurvivorNoGap", "SurvivorWithGap", "KilledComparison", "AllUnreached"} THEN [Runner] = "playwright";
+IF [Outcome] = "AllUnreached" THEN [Checkpoint] = "Disabled";

@@ -16,6 +16,8 @@ const lanes = [];
 let supportsIds;
 let createContext;
 let runnerEntry;
+let trialSeq = 0;
+let freshLaneSeq = 0;
 
 const shiftSwitches = new Map(mutants.filter(mutant => mutant.parametric).map(mutant => [`${mutant.parametric.file}:${mutant.parametric.at}`, mutant.id]));
 
@@ -135,22 +137,60 @@ async function runInThread(lane, plans, limit, deadline, onEvent, onTick) {
   return events;
 }
 
+async function disposeLane(lane) {
+  if (!lane) return;
+  const idx = lanes.indexOf(lane);
+  if (idx !== -1) lanes.splice(idx, 1);
+  try { lane.context?.cancelCurrentRun?.('timeout'); } catch { /* ignore */ }
+  await Promise.race([
+    Promise.resolve().then(() => lane.context?.close?.()).catch(() => {}),
+    new Promise(resolveClose => setTimeout(resolveClose, 5_000)),
+  ]);
+}
+
 async function run(specs, state, lane = lanes[0], timeoutMs = runTimeout) {
   lane.snapshot = null;
-  rmSync(destination, { force: true });
+  const runDestination = state.id === undefined
+    ? destination
+    : resolve(temporary, `coverage-${++trialSeq}.jsonl`);
+  rmSync(runDestination, { force: true });
   clearVitestState(lane);
-  lane.context.provide('tmtSession', { ...state, destination });
-  const timeout = setTimeout(() => {
-    record(state.id === undefined
-      ? { baseline: { status: 'timeout', timeoutSeconds: Math.round(timeoutMs / 1000) } }
-      : { id: state.id, status: 'timeout', statusReason: 'Vitest did not finish before its deadline' });
-    process.exit(124);
-  }, timeoutMs);
+  lane.context.provide('tmtSession', { ...state, destination: runDestination });
+  if (state.id === undefined) {
+    const timeout = setTimeout(() => {
+      record({ baseline: { status: 'timeout', timeoutSeconds: Math.round(timeoutMs / 1000) } });
+      process.exit(124);
+    }, timeoutMs);
+    try {
+      await lane.context.runTestSpecifications(specs);
+      if (!lane.snapshot) throw new Error('Vitest did not report a completed run');
+      const records = existsSync(runDestination)
+        ? readFileSync(runDestination, 'utf8').trim().split('\n').filter(Boolean).map(row => JSON.parse(row)) : [];
+      return { snapshot: lane.snapshot, records };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+  let timeout;
+  let timedOut = false;
+  const deadlinePromise = new Promise(resolveTimeout => {
+    timeout = setTimeout(() => {
+      timedOut = true;
+      resolveTimeout('timeout');
+    }, timeoutMs);
+  });
   try {
-    await lane.context.runTestSpecifications(specs);
+    const outcome = await Promise.race([
+      lane.context.runTestSpecifications(specs).then(() => 'done'),
+      deadlinePromise,
+    ]);
+    if (timedOut || outcome === 'timeout') {
+      await disposeLane(lane);
+      return { timedOut: true };
+    }
     if (!lane.snapshot) throw new Error('Vitest did not report a completed run');
-    const records = existsSync(destination)
-      ? readFileSync(destination, 'utf8').trim().split('\n').filter(Boolean).map(row => JSON.parse(row)) : [];
+    const records = existsSync(runDestination)
+      ? readFileSync(runDestination, 'utf8').trim().split('\n').filter(Boolean).map(row => JSON.parse(row)) : [];
     return { snapshot: lane.snapshot, records };
   } finally {
     clearTimeout(timeout);
@@ -333,7 +373,7 @@ try {
             if (reportedCount > lastEmitted && now - lastEmitAt >= emitIntervalMs) {
               lastEmitted = reportedCount;
               lastEmitAt = now;
-              record({ progress: { completed: settledBeforeDecide + reportedCount } });
+              record({ progress: { completed: settledBeforeDecide + reportedCount, stage: 'in-worker' } });
             }
           };
           onProgressTick = flushProgress;
@@ -404,25 +444,62 @@ try {
         for (const [id, list] of runs) effects.set(id, effectsOf(list));
       }
       for (const id of sampleSettled(pending.map(({ mutant }) => mutant.id).filter(id => settled.has(id)), Math.max(0, verifyTrials - totals.sampled))) sampled.add(id);
-      for (const { mutant, plan } of pending) {
+      let persistedWarm = 0;
+      const freshQueue = [];
+      // Persist all completed warm verdicts before starting any isolated/fresh fallback trial so a later
+      // timeout or crash never loses already-decided in-worker results.
+      for (const entry of pending) {
+        const { mutant } = entry;
         const { id } = mutant;
-        const expected = plan.staticActivation || !supportsIds ? tests : new Map([...plan.covered].map(id => [id, tests.get(id)]));
         if (settled.has(id) && !sampled.has(id)) {
           report(mutant, { ...settled.get(id), ...(effects.has(id) ? { effects: effects.get(id) } : {}) });
-          continue;
+          persistedWarm++;
+        } else {
+          freshQueue.push(entry);
         }
+      }
+      const trialTimeoutSeconds = Math.max(1, Math.round(runTimeout / 1000));
+      let freshDone = 0;
+      for (const { mutant, plan } of freshQueue) {
+        const { id } = mutant;
+        const expected = plan.staticActivation || !supportsIds ? tests : new Map([...plan.covered].map(testId => [testId, tests.get(testId)]));
         if (!sampled.has(id)) totals.isolated++;
+        if (trackProgress) {
+          record({
+            progress: {
+              completed: settledBeforeDecide + persistedWarm + freshDone,
+              stage: 'isolated',
+              trialTimeoutSeconds,
+            },
+          });
+        }
         // A fresh run stops at its first failing test. Beside each other, test files would be cut off mid-run,
         // so these runs take the files one by one.
-        fresh ??= beside === oneByOne ? lanes[0] : await openLane('fresh', true).then(lane => (lanes.push(lane), lane));
-        const selected = chooseTests(fresh.specs, tests, plan);
-        const hitLimit = plan.hits * 100;
-        const trial = await run(selected, { id, phase: 'trial', active: mutant.active ?? id, shift: mutant.shift, hitLimit,
-          staticActivation: plan.staticActivation }, fresh);
-        const assessed = assessTrial(trial, expected, hitLimit);
+        let assessed;
+        let changed = {};
+        try {
+          fresh ??= (beside === oneByOne && lanes[0]) ? lanes[0] : await openLane(`fresh-${++freshLaneSeq}`, true).then(lane => (lanes.push(lane), lane));
+          const selected = chooseTests(fresh.specs, tests, plan);
+          const hitLimit = plan.hits * 100;
+          const trial = await run(selected, { id, phase: 'trial', active: mutant.active ?? id, shift: mutant.shift, hitLimit,
+            staticActivation: plan.staticActivation }, fresh);
+          if (trial.timedOut) {
+            fresh = null;
+            assessed = { status: 'timeout', statusReason: 'Vitest did not finish before its deadline' };
+          } else {
+            assessed = assessTrial(trial, expected, hitLimit);
+            if (mutant.effects && assessed.status === 'survived') {
+              changed = { effects: effectsOf(reachOfRecords(trial.records, expected.keys())) };
+            }
+          }
+        } catch (trialError) {
+          await disposeLane(fresh);
+          fresh = null;
+          assessed = { status: 'error', statusReason: String(trialError?.message ?? trialError) };
+        }
         if (sampled.has(id) && assessed.status !== settled.get(id).status) totals.mismatches.push({ id, worker: settled.get(id).status, fresh: assessed.status });
-        const changed = mutant.effects && assessed.status === 'survived' ? { effects: effectsOf(reachOfRecords(trial.records, expected.keys())) } : {};
         report(mutant, { ...assessed, ...changed, ...(reasons.has(id) ? { fallback: reasons.get(id) } : {}) });
+        freshDone++;
       }
       totals.inWorker += settled.size;
       totals.sampled += sampled.size;
@@ -450,7 +527,7 @@ try {
 } catch (error) {
   record({ error: error.message });
 } finally {
-  await Promise.race([Promise.all(lanes.map(lane => lane.context.close())), new Promise(resolveClose => setTimeout(resolveClose, 5_000))]);
+  await Promise.race([Promise.all(lanes.map(lane => Promise.resolve().then(() => lane.context?.close?.()).catch(() => {}))), new Promise(resolveClose => setTimeout(resolveClose, 5_000))]);
   // Vitest sets the exit code of a run with failures, and a worker caught in an endless loop outlives its
   // Vitest instance, so the session ends itself with its own status.
   process.exit(exitStatus);

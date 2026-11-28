@@ -434,12 +434,37 @@ export function summarizeReport(report) {
   return { edits: mutants.length, gaps: gaps.length, otherSurvivors };
 }
 
+export function formatSessionFailure({ runnerLabel = 'Session', events = [], run = {} } = {}) {
+  const explicitError = events.findLast(event => event.error)?.error;
+  const fallbackReason = `${runnerLabel} session stopped (exit ${run.status ?? run.signal ?? 'unknown'})`;
+  const rawReason = explicitError ?? run.error?.message ?? fallbackReason;
+  const reason = firstLine(rawReason).slice(0, 240) || fallbackReason;
+  const rawStderr = typeof run.stderr === 'string' ? run.stderr.trim() : '';
+  const maxStderrChars = 8192;
+  const stderr = rawStderr.length > maxStderrChars
+    ? `...(truncated)...\n${rawStderr.slice(-maxStderrChars)}`
+    : rawStderr;
+  return {
+    reason,
+    ...(run.status !== null && run.status !== undefined ? { exitCode: run.status } : {}),
+    ...(run.signal ? { signal: run.signal } : {}),
+    ...(stderr ? { stderr } : {}),
+  };
+}
+
 export function formatProgressSummary(report) {
   const { edits, gaps, otherSurvivors } = summarizeReport(report);
   const gapPart = otherSurvivors > 0
     ? `${plural(gaps, 'targeted gap')}, ${plural(otherSurvivors, 'other survivor')}`
     : plural(gaps, 'gap');
   return `Completed (${report.evaluation}, ${plural(edits, 'edit')}, ${gapPart}).`;
+}
+
+function formatReachedHint(reachedTests) {
+  if (!Array.isArray(reachedTests) || !reachedTests.length) return '';
+  const shown = reachedTests.slice(0, 2).map(test => `${printable(test.file)} > ${printable(test.name)}`);
+  const more = reachedTests.length - shown.length;
+  return `  (reached by: ${shown.join('; ')}${more > 0 ? `, +${more} more` : ''})`;
 }
 
 export function renderText(report, { verbose = false, onlyGaps = false } = {}) {
@@ -454,6 +479,8 @@ export function renderText(report, { verbose = false, onlyGaps = false } = {}) {
     return lines.join('\n');
   }
   const mutants = report.mutants ?? [];
+  const gaps = report.diagnostics ?? [];
+  const diagnosedSites = new Set(gaps.map(gap => gap.site).filter(Boolean));
   const isListed = report.evaluation === 'listed';
   if (!onlyGaps || isListed) {
     for (const mutant of mutants) {
@@ -461,10 +488,14 @@ export function renderText(report, { verbose = false, onlyGaps = false } = {}) {
       const reason = mutant.statusReason && ['timeout', 'error', 'unstable', 'ignored', 'load_error', 'unsupported'].includes(mutant.status)
         ? `  (${firstLine(mutant.statusReason)})`
         : '';
-      lines.push(`${at(mutant.location)}  ${mutant.status}  ${describeEdit(mutant)}${reason}`);
+      const hasRicherGap = diagnosedSites.has(mutant.id ?? mutant.site) ||
+        Boolean(mutant.sharedWith && diagnosedSites.has(mutant.sharedWith));
+      const reachedHint = !isListed && mutant.status === 'survived' && !hasRicherGap
+        ? formatReachedHint(mutant.reachedTests)
+        : '';
+      lines.push(`${at(mutant.location)}  ${mutant.status}  ${describeEdit(mutant)}${reason}${reachedHint}`);
     }
   }
-  const gaps = report.diagnostics ?? [];
   if (gaps.length) {
     if (lines.length) lines.push('');
     lines.push('Test gaps:');
@@ -491,6 +522,12 @@ export function renderText(report, { verbose = false, onlyGaps = false } = {}) {
   }
   if (isListed && mutants.some(m => (m.rule ?? m.mutatorName) === 'comparison-boundary/v1' || m.operatorSwap)) {
     lines.push('Note: integer threshold and margin edits synthesized from runtime observations are added during analysis.');
+  }
+  if (report.runner === 'playwright' && !isListed && mutants.length > 0 && mutants.every(m => m.status === 'unreached')) {
+    lines.push("Note: no test reached any selected edit. If your app runs behind an external daemon or serves a prebuilt UI bundle, ensure Playwright's webServer serves or rebuilds the copied sources.");
+  }
+  if (report.sessionFailure?.reason) {
+    lines.push(`Session failure: ${firstLine(report.sessionFailure.reason)}`);
   }
   lines.push(`${report.runner}${size === undefined ? '' : `, ${plural(size, 'baseline test')}`}: ` +
     `${plural(mutants.length, 'edit')} (${tally}), ${gapSummary}` +

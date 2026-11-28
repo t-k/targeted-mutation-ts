@@ -1021,6 +1021,7 @@ export function completeAnalysis({ root, report, options, attempt, baseline, tra
         const reason = known?.statusReason ?? source?.statusReason;
         if (reason) result.statusReason = reason;
         if (actual === 'killed') result.tests = known ? known.tests : source.tests.filter(test => test.status === 'failed').map(testcase);
+        if (known?.reachedTests?.length) result.reachedTests = known.reachedTests;
       }
 
       if (options.audit) {
@@ -1037,6 +1038,7 @@ export function completeAnalysis({ root, report, options, attempt, baseline, tra
       result.sourceVerdict = 'survived';
       result.status = report.instrumented.stable === false ? 'unstable'
         : trial.observation.loaded ? 'unreached' : 'unevaluated';
+      if (result.status === 'unreached') delete result.reachedTests;
     }
     if (audit) {
       const status = focusedAuditStatus(audit.source, audit.probe, predicted, result.status);

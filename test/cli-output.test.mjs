@@ -177,3 +177,75 @@ test('a Playwright witness gap shows its requirement, test file and verification
     '', 'playwright, 1 baseline test: 2 edits (1 survived, 1 killed), 1 test gap',
   ].join('\n'));
 });
+
+test('renderText shows compact reached-by hint only for survivors without a richer diagnostic and prebuilt-assets note when all Playwright edits are unreached', () => {
+  const report = {
+    schemaVersion: 1,
+    runner: 'playwright',
+    mutators: 'full',
+    evaluation: 'evaluated',
+    baseline: { status: 'passed', tests: 2 },
+    mutants: [
+      {
+        id: 'm1',
+        location: { file: 'src/Overview.tsx', line: 360, column: 10 },
+        mutatorName: 'EqualityOperator',
+        original: 'a === b',
+        replacement: 'a !== b',
+        status: 'survived',
+        evidence: 'reexecuted',
+        reachedTests: [
+          { id: 't1', project: 'chromium', file: 'e2e/overview.spec.ts', name: 'renders overview' },
+          { id: 't2', project: 'chromium', file: 'e2e/overview.spec.ts', name: 'filters list' },
+          { id: 't3', project: 'chromium', file: 'e2e/overview.spec.ts', name: 'refreshes' },
+        ],
+      },
+      {
+        id: 'm2',
+        location: { file: 'src/Overview.tsx', line: 362, column: 10 },
+        mutatorName: 'nullish-fallback/v1',
+        original: 'x ?? 0',
+        replacement: 'x || 0',
+        status: 'survived',
+        evidence: 'reexecuted',
+        reachedTests: [
+          { id: 't1', project: 'chromium', file: 'e2e/overview.spec.ts', name: 'renders overview' },
+        ],
+      },
+    ],
+    diagnostics: [
+      {
+        kind: 'INPUT GAP',
+        site: 'm2',
+        location: { file: 'src/Overview.tsx', line: 362, column: 10 },
+        rule: 'nullish-fallback/v1',
+        expression: 'x ?? 0',
+        missing: 'a test in which `x` is 0',
+        mutations: [{ rule: 'nullish-fallback/v1', replacement: 'x || 0' }],
+      },
+    ],
+  };
+  const text = renderText(report);
+  assert.match(text, /EqualityOperator: a === b -> a !== b {2}\(reached by: e2e\/overview\.spec\.ts > renders overview; e2e\/overview\.spec\.ts > filters list, \+1 more\)/);
+  assert.doesNotMatch(text, /nullish-fallback\/v1:.*\(reached by:/);
+
+  const allUnreachedText = renderText({
+    schemaVersion: 1,
+    runner: 'playwright',
+    mutators: 'targeted',
+    evaluation: 'evaluated',
+    baseline: { status: 'passed', tests: 3 },
+    mutants: [
+      {
+        site: 's1',
+        location: { file: 'src/Overview.tsx', line: 10, column: 5 },
+        rule: 'comparison-boundary/v1',
+        operator: '>=',
+        replacement: '>',
+        status: 'unreached',
+      },
+    ],
+    diagnostics: [],
+  });
+  assert.match(allUnreachedText, /external daemon or serves a prebuilt UI bundle/);
+});

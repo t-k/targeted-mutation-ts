@@ -361,3 +361,126 @@ test('fails during baseline', async ({ page }) => {
     rmSync(bootLog, { force: true });
   }
 });
+
+test('Playwright warm session reports reachedTests on equality survivor, distinguishes killed comparison tests, and omits reachedTests on unreached edits', () => {
+  assert.ok(process.env.PORT, 'Run this fixture with an assigned PORT');
+  const root = mkdtempSync(join(tmpdir(), 'tmt-playwright-reached-tests-'));
+  try {
+    mkdirSync(join(root, 'src'), { recursive: true });
+    mkdirSync(join(root, 'e2e'), { recursive: true });
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'pw-reached-tests-e2e', type: 'module' }));
+    writeFileSync(join(root, 'playwright.config.ts'), `
+import { defineConfig } from '@playwright/test';
+const port = Number(process.env.PORT);
+const baseURL = 'http://127.0.0.1:' + port;
+export default defineConfig({
+  testDir: './e2e',
+  fullyParallel: false,
+  retries: 0,
+  use: { baseURL, browserName: 'chromium' },
+  projects: [{ name: 'chromium' }],
+  webServer: { command: 'node server.mjs', url: baseURL, reuseExistingServer: false },
+});
+`);
+    writeFileSync(join(root, 'src/overview.ts'), [
+      'export function formatOverview(status: string, count: number): { ready: boolean; hasItems: boolean } {',
+      '  const ready = status === "ready";',
+      '  const hasItems = count >= 1;',
+      '  return { ready, hasItems };',
+      '}',
+      '',
+      'export function unreachedHelper(x: number): number {',
+      '  return x + 1;',
+      '}',
+    ].join('\n') + '\n');
+
+    writeFileSync(join(root, 'server.mjs'), `
+import { readFileSync } from 'node:fs';
+import { createServer } from 'node:http';
+import ts from 'typescript';
+
+const overviewCode = ts.transpileModule(readFileSync(new URL('./src/overview.ts', import.meta.url), 'utf8'), {
+  compilerOptions: { target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.ESNext },
+}).outputText;
+
+const server = createServer((req, res) => {
+  const url = new URL(req.url, 'http://127.0.0.1');
+  if (url.pathname === '/overview.js') {
+    res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' }).end(overviewCode);
+    return;
+  }
+  const status = url.searchParams.get('status') ?? 'ready';
+  const count = Number(url.searchParams.get('count') ?? 0);
+  res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(\`<!doctype html>
+    <div id="items"></div>
+    <div id="status"></div>
+    <script type="module">
+      import { formatOverview } from '/overview.js';
+      const out = formatOverview(\${JSON.stringify(status)}, \${count});
+      document.getElementById('items').textContent = out.hasItems ? 'ITEMS' : 'EMPTY';
+      document.getElementById('status').dataset.ready = String(out.ready);
+      document.getElementById('status').textContent = 'rendered';
+    </script>\`);
+});
+
+server.listen(Number(process.env.PORT), '127.0.0.1');
+`);
+
+    writeFileSync(join(root, 'e2e/overview.spec.ts'), `
+import { expect, test } from '@playwright/test';
+
+test('renders overview items boundary', async ({ page }) => {
+  await page.goto('/?status=ready&count=0');
+  await expect(page.locator('#items')).toHaveText('EMPTY');
+  await page.goto('/?status=ready&count=1');
+  await expect(page.locator('#items')).toHaveText('ITEMS');
+  await expect(page.locator('#status')).toHaveText('rendered');
+});
+
+test('unrelated page load without overview module', async ({ page }) => {
+  await page.setContent('<div id="ok">ok</div>');
+  await expect(page.locator('#ok')).toHaveText('ok');
+});
+`);
+
+    const report = JSON.parse(exec(process.execPath, [
+      'bin/tmt.mjs', 'analyze', root, 'src/overview.ts', '--runner', 'playwright', '--mutators', 'full', '--project', 'chromium',
+    ]));
+    assert.equal(report.operatorExecution, 'session');
+    assert.equal(report.evaluation, 'evaluated');
+
+    // 1. Equality survivor: survived without `tests` (failed tests), but with `reachedTests` naming only the reaching Overview test.
+    const eqSurvivor = report.mutants.find(
+      m => m.location.line === 2 && m.mutatorName === 'EqualityOperator' && m.status === 'survived',
+    );
+    assert.ok(eqSurvivor, `expected survived EqualityOperator on line 2, got ${JSON.stringify(report.mutants)}`);
+    assert.equal(eqSurvivor.evidence, 'reexecuted');
+    assert.equal(eqSurvivor.tests, undefined, 'survived mutant must not set `tests` (reserved for killing tests)');
+    assert.ok(Array.isArray(eqSurvivor.reachedTests) && eqSurvivor.reachedTests.length === 1);
+    assert.equal(eqSurvivor.reachedTests[0].file, 'e2e/overview.spec.ts');
+    assert.equal(eqSurvivor.reachedTests[0].name, 'renders overview items boundary');
+
+    // 2. Killed comparison: `tests` names the failing test, distinct from `reachedTests`.
+    const killedComparison = report.mutants.find(
+      m => m.location.line === 3 && (m.rule === 'comparison-boundary/v1' || m.mutatorName === 'EqualityOperator') && m.status === 'killed',
+    );
+    assert.ok(killedComparison, 'expected killed comparison on line 3');
+    assert.ok(Array.isArray(killedComparison.tests) && killedComparison.tests.length === 1);
+    assert.equal(killedComparison.tests[0].name, 'renders overview items boundary');
+    assert.ok(Array.isArray(killedComparison.reachedTests) && killedComparison.reachedTests.length === 1);
+
+    // 3. Unreached edit: status is `unreached` with neither `tests` nor `reachedTests`.
+    const unreached = report.mutants.find(m => m.location.line === 8 && m.status === 'unreached');
+    assert.ok(unreached, 'expected unreached edit on line 8');
+    assert.equal(unreached.tests, undefined);
+    assert.equal(unreached.reachedTests, undefined);
+
+    // 4. Text output includes compact `(reached by: ...)` hint on the survivor lacking a specialized gap diagnostic.
+    const textOutput = exec(process.execPath, [
+      'bin/tmt.mjs', 'analyze', root, 'src/overview.ts', '--runner', 'playwright', '--mutators', 'full', '--project', 'chromium', '--format', 'text',
+    ]);
+    assert.match(textOutput, /EqualityOperator:.*\(reached by: e2e\/overview\.spec\.ts > renders overview items boundary\)/);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

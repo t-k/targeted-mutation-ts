@@ -4,6 +4,7 @@ import { closeSync, existsSync, openSync, readFileSync, renameSync, writeFileSyn
 import { basename, dirname, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { prepareBuiltinSwitches, targetedOrBoundary } from './builtin-switches.mjs';
+import { formatSessionFailure } from './cli-output.mjs';
 import { checkpointKeyForTrial } from './checkpoint.mjs';
 import { extract } from './extract.mjs';
 import { selectScope } from './scope.mjs';
@@ -564,6 +565,8 @@ export async function analyzePlaywrightSession(project, files, options) {
       return { ...report, evaluation: 'unsupported_session', unsupportedReason: unsupported };
     }
 
+    const completed = run.status === 0 && events.at(-1)?.complete === true;
+    const sessionFailure = completed ? undefined : formatSessionFailure({ runnerLabel: 'Playwright', events, run });
     const error = events.findLast(event => event.error)?.error ?? run.error?.message ??
       (run.stderr?.trim() || `Playwright session stopped (exit ${run.status ?? run.signal})`);
     const baseEvent = events.find(event => event.baseline !== undefined);
@@ -573,7 +576,6 @@ export async function analyzePlaywrightSession(project, files, options) {
     }
 
     const results = new Map(events.filter(event => event.id !== undefined).map(event => [event.id, event]));
-    const completed = run.status === 0 && events.at(-1)?.complete === true;
     const observed = events.find(event => event.observed)?.observed ?? {};
     const places = new Map(prepared.map(mutant => [mutant.id, mutant]));
     const expressionsOf = (entries, own, plain) => {
@@ -610,7 +612,7 @@ export async function analyzePlaywrightSession(project, files, options) {
       if (result) {
         return { ...mutant, ...result, evidence: result.evidence ?? (result.status === 'unreached' ? 'coverage' : 'reexecuted') };
       }
-      return mutant.status ? mutant : { ...mutant, status: 'unevaluated', statusReason: error || 'Playwright session ended early' };
+      return mutant.status ? mutant : { ...mutant, status: 'unevaluated', statusReason: sessionFailure?.reason || 'Playwright session ended early' };
     });
 
     const diagnostics = [];
@@ -629,6 +631,7 @@ export async function analyzePlaywrightSession(project, files, options) {
       baselineSnapshot: baseline,
       baselineEvent: baseEvent,
       evaluation: completed ? 'evaluated' : 'incomplete',
+      ...(sessionFailure ? { sessionFailure } : {}),
       trials: events.find(event => event.trials)?.trials,
       extras: events.filter(event => event.extra !== undefined),
       mutants: judged.map(({ targeted: _rule, fullDiagnostic: _fd, effects: _effects, _cachedDiagnostic: _cd, ...mutant }) => mutant),

@@ -59,6 +59,7 @@ function sessionVerdicts(session, extras = []) {
     return mutant && {
       status: mutant.status === 'unreached' ? 'survived' : mutant.status,
       tests: mutant.tests,
+      ...(mutant.reachedTests?.length ? { reachedTests: mutant.reachedTests } : {}),
       ...(mutant.statusReason ? { statusReason: mutant.statusReason } : {}),
     };
   };
@@ -394,6 +395,7 @@ async function runPlaywrightTargetedSession(project, files, runOptions, run, pro
     runner: 'playwright',
     operatorExecution: 'session',
     trials: session.trials,
+    ...(session.sessionFailure ? { sessionFailure: session.sessionFailure } : {}),
     baseline: focused.baseline ?? session.baseline,
     evaluation: session.evaluation === 'incomplete' || focused.evaluation === 'incomplete' ? 'incomplete' : 'evaluated',
     mutants: mergedMutants,
@@ -477,6 +479,7 @@ export async function analyzeOperators(
     ...focused,
     operatorExecution: 'session',
     trials: session.trials,
+    ...(session.sessionFailure ? { sessionFailure: session.sessionFailure } : {}),
     baseline: focused.baseline ?? session.baseline,
     evaluation: session.evaluation === 'incomplete' || focused.evaluation === 'incomplete' ? 'incomplete' : 'evaluated',
     mutants: [...focused.mutants, ...added.map(mutant => fromSession(mutant, profile))].sort(order),

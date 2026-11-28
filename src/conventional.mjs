@@ -5,6 +5,7 @@ import { availableParallelism } from 'node:os';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { prepareBuiltinSwitches, targetedOrBoundary } from './builtin-switches.mjs';
+import { formatSessionFailure } from './cli-output.mjs';
 import { fullBuiltinGap, targetedGap } from './targeted-gaps.mjs';
 import { checkpointKeyForTrial } from './checkpoint.mjs';
 import { candidateKey } from './shard.mjs';
@@ -185,6 +186,18 @@ export async function analyzeConventional(project, files, options) {
       options.onProgress('Running baseline tests...');
       let baselineReported = false;
       let lastDone = -1;
+      let lastStageKey = '';
+      const formatStageSuffix = (stage, trialTimeoutSeconds, elapsed) => {
+        const parts = [];
+        if (stage === 'isolated') parts.push('isolated fallback');
+        else if (stage === 'in-worker') parts.push('in-worker');
+        else if (stage) parts.push(stage);
+        if (typeof trialTimeoutSeconds === 'number' && trialTimeoutSeconds > 0) {
+          parts.push(`${trialTimeoutSeconds}s trial deadline`);
+        }
+        if (elapsed !== undefined) parts.push(`${elapsed}s elapsed`);
+        return parts.length ? ` (${parts.join(', ')})` : '';
+      };
       const pollProgress = () => {
         const now = Date.now();
         const current = readEvents(output);
@@ -205,21 +218,29 @@ export async function analyzeConventional(project, files, options) {
           const sessionComplete = current.some(event => event.complete === true);
           const recordedDone = current.filter(event => event.id !== undefined).length;
           let latestProgress = 0;
+          let latestStage;
+          let latestTrialTimeoutSeconds;
           for (const event of current) {
             if (typeof event.progress?.completed === 'number' && event.progress.completed > latestProgress) {
               latestProgress = event.progress.completed;
             }
+            if (event.progress?.stage !== undefined) {
+              latestStage = event.progress.stage;
+              latestTrialTimeoutSeconds = event.progress.trialTimeoutSeconds;
+            }
           }
           const provisionalCap = Math.max(0, totalRunnable - 1);
           const done = Math.min(totalRunnable, Math.max(recordedDone, Math.min(latestProgress, provisionalCap)));
-          if (done > lastDone && done > 0) {
-            lastDone = done;
+          const stageKey = `${latestStage ?? ''}:${latestTrialTimeoutSeconds ?? ''}`;
+          if ((done > lastDone && done > 0) || (stageKey !== lastStageKey && latestStage === 'isolated')) {
+            lastDone = Math.max(lastDone, done);
+            lastStageKey = stageKey;
             lastReportAt = now;
-            options.onProgress(`Mutants: ${done}/${totalRunnable} completed`);
+            options.onProgress(`Mutants: ${Math.max(0, done)}/${totalRunnable} completed${formatStageSuffix(latestStage, latestTrialTimeoutSeconds)}`);
           } else if (!sessionComplete && now - lastReportAt >= progressIntervalMs) {
             lastReportAt = now;
             const elapsed = Math.max(1, Math.round((now - baselineDoneAt) / 1000));
-            options.onProgress(`Mutants: ${Math.max(0, done)}/${totalRunnable} completed (${elapsed}s elapsed)`);
+            options.onProgress(`Mutants: ${Math.max(0, done)}/${totalRunnable} completed${formatStageSuffix(latestStage, latestTrialTimeoutSeconds, elapsed)}`);
           }
         }
       };
@@ -236,12 +257,13 @@ export async function analyzeConventional(project, files, options) {
     }
     if (extrasError) throw extrasError;
     const events = readEvents(output);
-    const error = events.findLast(event => event.error)?.error ?? run.error?.message ??
+    const completed = run.status === 0 && events.at(-1)?.complete === true;
+    const sessionFailure = completed ? undefined : formatSessionFailure({ runnerLabel: 'Vitest', events, run });
+    const baselineErrorText = events.findLast(event => event.error)?.error ?? run.error?.message ??
       (run.stderr?.trim() || `Vitest session stopped (exit ${run.status ?? run.signal})`);
-    const baseline = events.find(event => event.baseline)?.baseline ?? { status: 'error', output: error };
+    const baseline = events.find(event => event.baseline)?.baseline ?? { status: 'error', output: baselineErrorText };
     if (baseline.status !== 'passed') return { ...report, evaluation: 'baseline_error', baseline };
     const results = new Map(events.filter(event => event.id !== undefined).map(event => [event.id, event]));
-    const completed = run.status === 0 && events.at(-1)?.complete === true;
     const observed = events.find(event => event.observed)?.observed ?? {};
     // The expressions behind the switches an edit's tests newly reach or no longer reach, without the edit's own.
     const places = new Map(prepared.map(mutant => [mutant.id, mutant]));
@@ -277,7 +299,7 @@ export async function analyzeConventional(project, files, options) {
       if (result) {
         return { ...mutant, ...result, evidence: result.evidence ?? (result.status === 'unreached' ? 'coverage' : 'reexecuted') };
       }
-      return mutant.status ? mutant : { ...mutant, status: 'unevaluated', statusReason: error || 'Mutation session ended early' };
+      return mutant.status ? mutant : { ...mutant, status: 'unevaluated', statusReason: sessionFailure?.reason || 'Mutation session ended early' };
     });
     const diagnostics = [];
     for (const mutant of judged) {
@@ -290,6 +312,7 @@ export async function analyzeConventional(project, files, options) {
     }
     return {
       ...report, baseline, evaluation: completed ? 'evaluated' : 'incomplete', trials: events.find(event => event.trials)?.trials,
+      ...(sessionFailure ? { sessionFailure } : {}),
       ...(awaitsExtras ? { extras: events.filter(event => event.extra !== undefined) } : {}),
       mutants: judged.map(({ targeted: _rule, fullDiagnostic: _fd, effects: _effects, _cachedDiagnostic: _cd, ...mutant }) => mutant),
       diagnostics,

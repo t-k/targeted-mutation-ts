@@ -601,6 +601,14 @@ async function runSession() {
     return true;
   };
 
+  const reachedTestsForPlan = plan => {
+    const ids = plan.serverStatic ? [...passedTests.keys()] : (plan.orderedTestIds ?? []);
+    return ids
+      .map(testId => passedTests.get(testId))
+      .filter(Boolean)
+      .map(({ id, project, file, name }) => ({ id, project, file, name }));
+  };
+
   let completedCount = 0;
   const pending = [];
   for (const mutant of mutants.filter(candidate => !candidate.parametric)) {
@@ -631,7 +639,8 @@ async function runSession() {
       continue;
     }
     if (mutant.predictableFull && canPredictFullSurvivor(id, plan, seen)) {
-      record({ id, status: 'survived', evidence: 'predicted' });
+      const reachedTests = reachedTestsForPlan(plan);
+      record({ id, status: 'survived', evidence: 'predicted', ...(reachedTests.length ? { reachedTests } : {}) });
       completedCount++;
       continue;
     }
@@ -708,9 +717,11 @@ async function runSession() {
         effects: effectsFromPlaywrightRecords(indexed.reach, isoPass.records, expectedTestIds, passedTests),
       };
     }
+    const reachedTests = reachedTestsForPlan(plan);
     return {
       ...assessed,
       ...effectsObj,
+      ...(reachedTests.length ? { reachedTests } : {}),
       ...(fallbackReason ? { fallback: fallbackReason } : {}),
     };
   };
@@ -784,7 +795,8 @@ async function runSession() {
               effects: effectsFromPlaywrightRecords(indexed.reach, trialPass.records, executedTestIds, passedTests),
             };
           }
-          const settledResult = { ...classified.result, ...effectsObj };
+          const reachedTests = reachedTestsForPlan(plan);
+          const settledResult = { ...classified.result, ...effectsObj, ...(reachedTests.length ? { reachedTests } : {}) };
           warmSettledMap.set(mutant.id, settledResult);
           totals.inWorker++;
           if (!verifyTrials) {
