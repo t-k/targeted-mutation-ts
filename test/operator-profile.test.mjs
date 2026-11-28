@@ -93,6 +93,60 @@ test('--audit and sessions that cannot start fall back to one source rewrite per
   assert.deepEqual(pwFallbackCalls, [['pw-session'], ['analyze', 'targeted']]);
   assert.equal(pwReport.operatorExecution, 'source-rewrite');
 
+  // When Playwright falls back due to `no-runtime-switch-observations` and no source-rewrite edit kills a test,
+  // survivors are downgraded to `unevaluated` with `sourceApplication: 'unconfirmed'` and gap recommendations are suppressed.
+  const allSurvivedRewrite = {
+    schemaVersion: 1,
+    runner: 'playwright',
+    mutators: 'targeted',
+    extraction: [],
+    baseline: { status: 'passed', tests: 1 },
+    evaluation: 'evaluated',
+    mutants: [
+      { site: 's1', location: { file: 'src/Overview.tsx', line: 10, column: 1, start: 0, end: 5 }, rule: 'comparison-boundary/v1', edit: [0, 5], replacement: '>', status: 'survived', evidence: 'reexecuted' },
+    ],
+    diagnostics: [
+      { kind: 'SURVIVED', site: 's1', location: { file: 'src/Overview.tsx', line: 10, column: 1 }, rule: 'comparison-boundary/v1', mutations: [{ rule: 'comparison-boundary/v1', replacement: '>' }] },
+    ],
+  };
+  const unconfirmedReport = await analyzeOperators('.', [], { ...options, runner: 'playwright' }, {
+    analyze: () => allSurvivedRewrite,
+    analyzePlaywrightSession: async () => ({ evaluation: 'unsupported_session', unsupportedReason: 'no-runtime-switch-observations' }),
+    prepareAnalysis: () => ({ report: focusedReport }),
+    completeAnalysis: () => focusedReport,
+    analyzeConventional: async () => sessionReport,
+  });
+  assert.equal(unconfirmedReport.operatorExecution, 'source-rewrite');
+  assert.equal(unconfirmedReport.sessionFallbackReason, 'no-runtime-switch-observations');
+  assert.equal(unconfirmedReport.sourceApplication, 'unconfirmed');
+  assert.equal(unconfirmedReport.evaluation, 'incomplete');
+  assert.equal(unconfirmedReport.mutants[0].status, 'unevaluated');
+  assert.equal(unconfirmedReport.mutants[0].sourceVerdict, 'survived');
+  assert.match(unconfirmedReport.mutants[0].statusReason, /may not have reached the running app/);
+  assert.equal(unconfirmedReport.diagnostics.length, 0);
+
+  // When source-rewrite establishes application via at least one kill, ordinary survivor and gap verdicts are preserved.
+  const mixedRewrite = {
+    ...allSurvivedRewrite,
+    mutants: [
+      ...allSurvivedRewrite.mutants,
+      { site: 's2', location: { file: 'src/Overview.tsx', line: 12, column: 1, start: 10, end: 15 }, rule: 'comparison-boundary/v1', edit: [10, 15], replacement: '<', status: 'killed', evidence: 'reexecuted' },
+    ],
+  };
+  const confirmedFallback = await analyzeOperators('.', [], { ...options, runner: 'playwright' }, {
+    analyze: () => mixedRewrite,
+    analyzePlaywrightSession: async () => ({ evaluation: 'unsupported_session', unsupportedReason: 'no-runtime-switch-observations' }),
+    prepareAnalysis: () => ({ report: focusedReport }),
+    completeAnalysis: () => focusedReport,
+    analyzeConventional: async () => sessionReport,
+  });
+  assert.equal(confirmedFallback.operatorExecution, 'source-rewrite');
+  assert.equal(confirmedFallback.sessionFallbackReason, 'no-runtime-switch-observations');
+  assert.equal(confirmedFallback.sourceApplication, undefined);
+  assert.equal(confirmedFallback.evaluation, 'evaluated');
+  assert.equal(confirmedFallback.mutants[0].status, 'survived');
+  assert.equal(confirmedFallback.diagnostics.length, 1);
+
   const unsupported = runners(received => received.mutators === 'targeted' ? rewritten : focusedReport,
     { ...sessionReport, evaluation: 'baseline_error', baseline: { status: 'error', output: 'The Vitest session requires Vitest 4, found 3.2.4' } });
   const fallback = await analyzeOperators('.', [], options, unsupported);

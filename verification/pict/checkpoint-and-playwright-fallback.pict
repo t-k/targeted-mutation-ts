@@ -1,0 +1,13 @@
+Runner: Vitest, Playwright
+SessionOutcome: WarmSettled, WarmThenIsolated, NoRuntimeObservations, OtherUnsupported
+CheckpointMode: None, Fresh, Resume
+InterruptStage: None, DuringIsolated, FreshTimeout
+PlaywrightSelection: None, SingleProjectAndTest, MultiProjectAndTest
+SourceApplication: Observed, FrozenBundle, FallbackKilled
+
+IF [Runner] = "Vitest" THEN [PlaywrightSelection] = "None" AND [SourceApplication] = "Observed" AND [SessionOutcome] IN {"WarmSettled", "WarmThenIsolated"};
+IF [Runner] = "Playwright" THEN [InterruptStage] = "None" AND [SessionOutcome] IN {"WarmSettled", "NoRuntimeObservations", "OtherUnsupported"};
+IF [SessionOutcome] = "NoRuntimeObservations" THEN [SourceApplication] IN {"FrozenBundle", "FallbackKilled"};
+IF [SessionOutcome] <> "NoRuntimeObservations" THEN [SourceApplication] = "Observed";
+IF [InterruptStage] = "DuringIsolated" THEN [SessionOutcome] = "WarmThenIsolated" AND [CheckpointMode] = "Fresh";
+IF [InterruptStage] = "FreshTimeout" THEN [SessionOutcome] = "WarmThenIsolated";

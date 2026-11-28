@@ -116,6 +116,68 @@ export async function analyzeConventional(project, files, options) {
     };
   }
 
+  // The expressions behind the switches an edit's tests newly reach or no longer reach, without the edit's own.
+  const places = new Map(prepared.map(mutant => [mutant.id, mutant]));
+  const expressionsOf = (entries, own, plain) => {
+    const seen = new Map();
+    for (const { id, test } of entries) {
+      const { location, original } = places.get(id) ?? {};
+      if (!location || (location.file === own.file && own.start === location.start && location.end === own.end)) continue;
+      // An edit without a probe is plain text: what stands inside it is evaluated without a switch to show it.
+      if (plain && location.file === own.file && own.start <= location.start && location.end <= own.end) continue;
+      seen.set(`${test}:${location.file}:${location.start}:${location.end}`, { ...(test === undefined ? {} : { test }),
+        location: { file: location.file, line: location.line, column: location.column }, expression: original });
+    }
+    return [...seen.values()].slice(0, 3);
+  };
+  const withEffects = (gap, mutant) => {
+    if (!gap || !mutant.effects) return gap;
+    const plain = mutant.targeted?.operator === 'await' || mutant.targeted?.operator === 'cleanup';
+    const nowRuns = expressionsOf(mutant.effects.now, mutant.location, plain);
+    const noLongerRuns = expressionsOf(mutant.effects.gone, mutant.location, plain);
+    return nowRuns.length || noLongerRuns.length ? { ...gap, effects: { nowRuns, noLongerRuns } } : gap;
+  };
+  const mutantsBySessionId = new Map();
+  for (const mutant of mutants) {
+    if (cachedById.has(mutant.id)) continue;
+    const sessionKey = mutant.sharedWith && runnableIds.has(mutant.sharedWith) ? mutant.sharedWith : mutant.id;
+    let list = mutantsBySessionId.get(sessionKey);
+    if (!list) mutantsBySessionId.set(sessionKey, list = []);
+    list.push(mutant);
+  }
+  const persistedSessionIds = new Set();
+  let liveObserved = null;
+  let liveOutputPath = null;
+  let liveSessionFinished = false;
+  const syncLiveCheckpoint = currentEvents => {
+    if (!ckpt || !currentEvents?.length) return;
+    const base = currentEvents.find(event => event.baseline)?.baseline;
+    if (base?.status !== 'passed') return;
+    if (!liveObserved) {
+      liveObserved = currentEvents.find(event => event.observed)?.observed ?? {};
+    }
+    for (const event of currentEvents) {
+      if (event.id === undefined || persistedSessionIds.has(event.id)) continue;
+      persistedSessionIds.add(event.id);
+      const group = mutantsBySessionId.get(event.id);
+      if (!group) continue;
+      for (const mutant of group) {
+        const result = { ...event, id: mutant.id };
+        if (result.status === 'ignored') continue;
+        const judgedMutant = {
+          ...mutant,
+          ...result,
+          evidence: result.evidence ?? (result.status === 'unreached' ? 'coverage' : 'reexecuted'),
+        };
+        const gap = withEffects(
+          targetedGap(judgedMutant, liveObserved[judgedMutant.id]) ?? fullBuiltinGap(judgedMutant, liveObserved[judgedMutant.id]),
+          judgedMutant,
+        );
+        ckpt.record(checkpointKeyForTrial(judgedMutant), judgedMutant, gap ?? undefined);
+      }
+    }
+  };
+
   return withCopy(root, async (workspace, temp) => {
     runnerPackage(workspace, 'vitest');
     for (const { file, output } of sources) {
@@ -129,6 +191,7 @@ export async function analyzeConventional(project, files, options) {
     copyFileSync(runnerSource, workerRunner);
     const manifest = resolve(temp, 'mutation-session.json');
     const output = resolve(temp, 'mutation-session.jsonl');
+    liveOutputPath = output;
     const runTimeoutMs = options.timeout ? options.timeout * 1000 : 60_000;
     const baselineTimeoutMs = options['baseline-timeout'] ? options['baseline-timeout'] * 1000 : runTimeoutMs;
     const totalRunnable = sessionRunnable.filter(mutant => !mutant.parametric).length;
@@ -178,13 +241,15 @@ export async function analyzeConventional(project, files, options) {
       });
     }
     let progressTimer = null;
-    if (options.onProgress) {
+    if (options.onProgress || ckpt) {
       const progressIntervalMs = options.progressIntervalMs ?? 5_000;
-      const pollIntervalMs = Math.min(1_000, Math.max(50, Math.floor(progressIntervalMs / 2)));
+      const pollIntervalMs = options.onProgress
+        ? Math.min(1_000, Math.max(50, Math.floor(progressIntervalMs / 2)))
+        : 200;
       const baselineStartedAt = Date.now();
       let baselineDoneAt = baselineStartedAt;
       let lastReportAt = baselineStartedAt;
-      options.onProgress('Running baseline tests...');
+      options.onProgress?.('Running baseline tests...');
       let baselineReported = false;
       let lastDone = -1;
       let lastStageKey = '';
@@ -202,6 +267,10 @@ export async function analyzeConventional(project, files, options) {
       const pollProgress = () => {
         const now = Date.now();
         const current = readEvents(output);
+        // Flush any newly settled session verdicts to the durable checkpoint BEFORE emitting
+        // isolated-fallback progress so an immediate SIGINT always sees settled warm results.
+        syncLiveCheckpoint(current);
+        if (!options.onProgress) return;
         if (!baselineReported) {
           const base = current.find(event => event.baseline)?.baseline;
           if (base?.status === 'passed') {
@@ -254,6 +323,7 @@ export async function analyzeConventional(project, files, options) {
     } finally {
       if (progressTimer) clearInterval(progressTimer);
       finished = true;
+      liveSessionFinished = true;
       options.signal?.removeEventListener('abort', onAbort);
     }
     if (extrasError) throw extrasError;
@@ -266,27 +336,6 @@ export async function analyzeConventional(project, files, options) {
     if (baseline.status !== 'passed') return { ...report, evaluation: 'baseline_error', baseline };
     const results = new Map(events.filter(event => event.id !== undefined).map(event => [event.id, event]));
     const observed = events.find(event => event.observed)?.observed ?? {};
-    // The expressions behind the switches an edit's tests newly reach or no longer reach, without the edit's own.
-    const places = new Map(prepared.map(mutant => [mutant.id, mutant]));
-    const expressionsOf = (entries, own, plain) => {
-      const seen = new Map();
-      for (const { id, test } of entries) {
-        const { location, original } = places.get(id) ?? {};
-        if (!location || (location.file === own.file && own.start === location.start && location.end === own.end)) continue;
-        // An edit without a probe is plain text: what stands inside it is evaluated without a switch to show it.
-        if (plain && location.file === own.file && own.start <= location.start && location.end <= own.end) continue;
-        seen.set(`${test}:${location.file}:${location.start}:${location.end}`, { ...(test === undefined ? {} : { test }),
-          location: { file: location.file, line: location.line, column: location.column }, expression: original });
-      }
-      return [...seen.values()].slice(0, 3);
-    };
-    const withEffects = (gap, mutant) => {
-      if (!gap || !mutant.effects) return gap;
-      const plain = mutant.targeted?.operator === 'await' || mutant.targeted?.operator === 'cleanup';
-      const nowRuns = expressionsOf(mutant.effects.now, mutant.location, plain);
-      const noLongerRuns = expressionsOf(mutant.effects.gone, mutant.location, plain);
-      return nowRuns.length || noLongerRuns.length ? { ...gap, effects: { nowRuns, noLongerRuns } } : gap;
-    };
     const judged = mutants.map(mutant => {
       const cached = cachedById.get(mutant.id);
       if (cached) {
@@ -318,5 +367,12 @@ export async function analyzeConventional(project, files, options) {
       mutants: judged.map(({ targeted: _rule, fullDiagnostic: _fd, effects: _effects, _cachedDiagnostic: _cd, ...mutant }) => mutant),
       diagnostics,
     };
-  }, { exclude: options['copy-exclude'], onProgress: options.onProgress, reuseCopy: options.reusableCopy });
+  }, {
+    exclude: options['copy-exclude'],
+    onProgress: options.onProgress,
+    reuseCopy: options.reusableCopy,
+    onBeforeCleanup: () => {
+      if (!liveSessionFinished && liveOutputPath) syncLiveCheckpoint(readEvents(liveOutputPath));
+    },
+  });
 }

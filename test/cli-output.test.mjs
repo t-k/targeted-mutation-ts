@@ -248,4 +248,31 @@ test('renderText shows compact reached-by hint only for survivors without a rich
     diagnostics: [],
   });
   assert.match(allUnreachedText, /external daemon or serves a prebuilt UI bundle/);
+
+  const unconfirmedBundleText = renderText({
+    schemaVersion: 1,
+    runner: 'playwright',
+    mutators: 'targeted',
+    operatorExecution: 'source-rewrite',
+    sessionFallbackReason: 'no-runtime-switch-observations',
+    sourceApplication: 'unconfirmed',
+    evaluation: 'incomplete',
+    baseline: { status: 'passed', tests: 1 },
+    mutants: [
+      {
+        site: 's1',
+        location: { file: 'src/Overview.tsx', line: 358, column: 5 },
+        rule: 'comparison-boundary/v1',
+        operator: '>=',
+        replacement: '>',
+        status: 'unevaluated',
+        sourceVerdict: 'survived',
+        statusReason: 'No runtime switch observations were recorded and no source-rewrite edit changed test behavior; edits may not have reached the running app',
+      },
+    ],
+    diagnostics: [],
+  });
+  assert.match(unconfirmedBundleText, /Warning: no runtime switch observations were recorded and source-rewrite edits may not have reached the app/);
+  assert.match(unconfirmedBundleText, /external daemon or serves a prebuilt UI bundle/);
+  assert.doesNotMatch(unconfirmedBundleText, /Test gaps:/);
 });

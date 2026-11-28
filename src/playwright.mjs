@@ -199,6 +199,19 @@ export function classifyPlaywright(report, exitCode, workspace) {
 export const testFilters = (root, tests = []) => [...new Set(tests.map(file => relative(root, inside(root, file))))]
   .map(file => file.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
 
+export function buildPlaywrightTestArgs({ wrapper, timeout = 60_000, outputDir, projects = [], filters = [] }) {
+  return [
+    'test',
+    '--config', wrapper,
+    '--workers=1',
+    '--reporter=json',
+    '--global-timeout', String(Math.max(100, timeout - 3000)),
+    ...projects.map(project => `--project=${project}`),
+    '--output', outputDir,
+    ...filters,
+  ];
+}
+
 export function runPlaywright(root, temp, { config, projects = [], tests = [], timeout = 60_000, original, wrapperOptions, extraEnv } = {}) {
   const bin = resolve(dirname(runnerPackage(root, 'playwright')), 'cli.js');
   const wrapper = createPlaywrightConfigWrapper(root, config, wrapperOptions);
@@ -207,10 +220,13 @@ export function runPlaywright(root, temp, { config, projects = [], tests = [], t
   const server = resolve(temp, 'server.pid');
   const attempt = randomUUID();
   const child = spawnSync(process.execPath, [supervisor, pid, String(timeout), bin,
-    'test', '--config', wrapper, '--workers=1', '--reporter=json', '--global-timeout', String(Math.max(100, timeout - 3000)),
-    '--output', resolve(temp, 'results'),
-    ...projects.flatMap(project => ['--project', project]),
-    ...testFilters(root, tests),
+    ...buildPlaywrightTestArgs({
+      wrapper,
+      timeout,
+      outputDir: resolve(temp, 'results'),
+      projects,
+      filters: testFilters(root, tests),
+    }),
   ], {
     cwd: root, encoding: 'utf8', timeout: timeout + 5000, maxBuffer: 4 * 1024 * 1024,
     env: {

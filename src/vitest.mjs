@@ -201,7 +201,7 @@ function rebaseCopiedLinks(source, workspace) {
   }
 }
 
-const activeCopies = new Set();
+const activeCopies = new Map();
 let signalHandlersRegistered = false;
 
 function stopCopyProcesses(dir) {
@@ -225,9 +225,16 @@ function stopCopyProcesses(dir) {
 }
 
 function cleanupActiveCopies() {
-  for (const dir of [...activeCopies]) {
+  for (const [dir, onBeforeCleanup] of [...activeCopies.entries()]) {
     activeCopies.delete(dir);
     stopCopyProcesses(dir);
+    if (typeof onBeforeCleanup === 'function') {
+      try {
+        onBeforeCleanup();
+      } catch {
+        // Best-effort flush before removing the temporary directory.
+      }
+    }
     try {
       rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 50 });
     } catch {
@@ -258,14 +265,18 @@ function handleSigterm() {
   handleSignal('SIGTERM', 143);
 }
 
-function registerActiveCopy(dir) {
-  activeCopies.add(dir);
+function registerActiveCopy(dir, onBeforeCleanup = null) {
+  activeCopies.set(dir, onBeforeCleanup);
   if (!signalHandlersRegistered) {
     signalHandlersRegistered = true;
     process.on('exit', cleanupActiveCopies);
     process.on('SIGINT', handleSigint);
     process.on('SIGTERM', handleSigterm);
   }
+}
+
+function setActiveCopyCleanupHook(dir, onBeforeCleanup) {
+  if (activeCopies.has(dir)) activeCopies.set(dir, onBeforeCleanup);
 }
 
 function unregisterActiveCopy(dir) {
@@ -458,12 +469,16 @@ export function withCopy(project, action, {
   exclude = [],
   onProgress,
   onLargeCopy,
+  onBeforeCleanup,
   largeCopyBytes = DEFAULT_LARGE_COPY_BYTES,
   largeCopyFiles = DEFAULT_LARGE_COPY_FILES,
 } = {}) {
   const copy = reuseCopy?.claim?.()
     ? reuseCopy
     : createCopy(project, { exclude, onProgress, onLargeCopy, largeCopyBytes, largeCopyFiles });
+  if (typeof onBeforeCleanup === 'function') {
+    setActiveCopyCleanupHook(copy.temp, () => onBeforeCleanup(copy.root, copy.temp));
+  }
   let pending = false;
   try {
     const result = action(copy.root, copy.temp);

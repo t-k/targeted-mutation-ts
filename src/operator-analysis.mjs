@@ -335,7 +335,9 @@ async function runPlaywrightTargetedSession(project, files, runOptions, run, pro
     },
   });
 
-  if (session.evaluation === 'unsupported_session') return null;
+  if (session.evaluation === 'unsupported_session') {
+    return { unsupportedSession: true, unsupportedReason: session.unsupportedReason };
+  }
   if (session.evaluation === 'baseline_error') {
     return finalize({
       schemaVersion: 1,
@@ -403,6 +405,39 @@ async function runPlaywrightTargetedSession(project, files, runOptions, run, pro
   }), focused);
 }
 
+function annotatePlaywrightSourceRewriteFallback(report, fallbackReason) {
+  if (!fallbackReason) return report;
+  const withReason = { ...report, sessionFallbackReason: fallbackReason };
+  if (fallbackReason !== 'no-runtime-switch-observations') return withReason;
+  const mutants = report.mutants ?? [];
+  if (report.evaluation === 'baseline_error' || report.evaluation === 'no_sites' || !mutants.length) {
+    return withReason;
+  }
+  const applicationEstablished = mutants.some(mutant => mutant.status === 'killed');
+  if (applicationEstablished) return withReason;
+  const unconfirmedSites = new Set();
+  const updatedMutants = mutants.map(mutant => {
+    if (mutant.status !== 'survived') return mutant;
+    const key = mutant.site ?? mutant.id;
+    if (key) unconfirmedSites.add(key);
+    return {
+      ...mutant,
+      sourceVerdict: 'survived',
+      status: 'unevaluated',
+      statusReason: 'No runtime switch observations were recorded and no source-rewrite edit changed test behavior; edits may not have reached the running app',
+    };
+  });
+  if (!unconfirmedSites.size) return withReason;
+  const updatedDiagnostics = (report.diagnostics ?? []).filter(gap => !unconfirmedSites.has(gap.site));
+  return {
+    ...withReason,
+    sourceApplication: 'unconfirmed',
+    evaluation: 'incomplete',
+    mutants: updatedMutants,
+    diagnostics: updatedDiagnostics,
+  };
+}
+
 // Vitest and Playwright (without --audit): built-in mutations and targeted rules run in one switched session
 // with per-test coverage and dual-realm comparison/probe recording, falling back to source rewrites when needed.
 export async function analyzeOperators(
@@ -435,9 +470,12 @@ export async function analyzeOperators(
     }
     return out;
   };
-  const rewriting = () => {
+  const rewriting = (fallbackReason = undefined) => {
     const out = run.analyze(project, files, { ...runOptions, mutators: profile });
-    return carryBaseline(finalize({ ...out, mutators: profile, operatorExecution: 'source-rewrite' }), out);
+    const annotated = runOptions.runner === 'playwright'
+      ? annotatePlaywrightSourceRewriteFallback(out, fallbackReason)
+      : out;
+    return carryBaseline(finalize({ ...annotated, mutators: profile, operatorExecution: 'source-rewrite' }), out);
   };
   if (runOptions.runner === 'node') {
     const runnerFn = run.analyzeNodeAsync ?? analyzeNodeAsync;
@@ -446,11 +484,13 @@ export async function analyzeOperators(
   }
   if (runOptions.audit) return rewriting();
   if (runOptions.runner === 'playwright') {
+    let fallbackReason;
     if (run.analyzePlaywrightSession) {
       const sessionOut = await runPlaywrightTargetedSession(project, files, runOptions, run, profile, finalize);
-      if (sessionOut) return sessionOut;
+      if (sessionOut && !sessionOut.unsupportedSession) return sessionOut;
+      fallbackReason = sessionOut?.unsupportedReason;
     }
-    return rewriting();
+    return rewriting(fallbackReason);
   }
   const { prepared, ended, stopped, extras, report: session, error } = await besideSession(project, files, runOptions, run, profile,
     report => report.evaluation === 'baseline_error' || report.extraction.some(file => file.path === 'diagnostic'));

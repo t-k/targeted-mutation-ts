@@ -485,7 +485,7 @@ export function renderText(report, { verbose = false, onlyGaps = false } = {}) {
   if (!onlyGaps || isListed) {
     for (const mutant of mutants) {
       if (!verbose && !isListed && mutant.status === 'killed') continue;
-      const reason = mutant.statusReason && ['timeout', 'error', 'unstable', 'ignored', 'load_error', 'unsupported'].includes(mutant.status)
+      const reason = mutant.statusReason && ['timeout', 'error', 'unstable', 'ignored', 'load_error', 'unsupported', 'unevaluated'].includes(mutant.status)
         ? `  (${firstLine(mutant.statusReason)})`
         : '';
       const hasRicherGap = diagnosedSites.has(mutant.id ?? mutant.site) ||
@@ -523,7 +523,9 @@ export function renderText(report, { verbose = false, onlyGaps = false } = {}) {
   if (isListed && mutants.some(m => (m.rule ?? m.mutatorName) === 'comparison-boundary/v1' || m.operatorSwap)) {
     lines.push('Note: integer threshold and margin edits synthesized from runtime observations are added during analysis.');
   }
-  if (report.runner === 'playwright' && !isListed && mutants.length > 0 && mutants.every(m => m.status === 'unreached')) {
+  if (report.runner === 'playwright' && !isListed && report.sourceApplication === 'unconfirmed') {
+    lines.push("Warning: no runtime switch observations were recorded and source-rewrite edits may not have reached the app. If your app runs behind an external daemon or serves a prebuilt UI bundle, ensure Playwright's webServer serves or rebuilds the copied sources.");
+  } else if (report.runner === 'playwright' && !isListed && mutants.length > 0 && mutants.every(m => m.status === 'unreached')) {
     lines.push("Note: no test reached any selected edit. If your app runs behind an external daemon or serves a prebuilt UI bundle, ensure Playwright's webServer serves or rebuilds the copied sources.");
   }
   if (report.sessionFailure?.reason) {

@@ -484,3 +484,250 @@ test('unrelated page load without overview module', async ({ page }) => {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('Playwright source-rewrite fallback preserves --project and --test filters (single and repeated projects) with unselected specs present, matching warm session scope', () => {
+  assert.ok(process.env.PORT, 'Run this fixture with an assigned PORT');
+  const root = mkdtempSync(join(tmpdir(), 'tmt-playwright-project-test-filter-'));
+  try {
+    mkdirSync(join(root, 'src'), { recursive: true });
+    mkdirSync(join(root, 'e2e'), { recursive: true });
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'pw-project-test-filter-e2e', type: 'module' }));
+    writeFileSync(join(root, 'playwright.config.ts'), `
+import { defineConfig } from '@playwright/test';
+const port = Number(process.env.PORT);
+const baseURL = 'http://127.0.0.1:' + port;
+export default defineConfig({
+  testDir: './e2e',
+  fullyParallel: false,
+  retries: 0,
+  use: { baseURL, browserName: 'chromium' },
+  projects: [
+    { name: 'chromium' },
+    { name: 'chromium-alt' },
+  ],
+  webServer: { command: 'node server.mjs', url: baseURL, reuseExistingServer: false },
+});
+`);
+    writeFileSync(join(root, 'src/badge.ts'), [
+      'export function formatBadge(count: number): string {',
+      '  return count >= 1 ? "ACTIVE" : "IDLE";',
+      '}',
+    ].join('\n') + '\n');
+
+    writeFileSync(join(root, 'server.mjs'), `
+import { readFileSync } from 'node:fs';
+import { createServer } from 'node:http';
+import ts from 'typescript';
+
+const serveFrozen = process.env.SERVE_FROZEN === '1';
+const badgeCode = serveFrozen
+  ? 'export function formatBadge(count) { return count >= 1 ? "ACTIVE" : "IDLE"; }'
+  : ts.transpileModule(readFileSync(new URL('./src/badge.ts', import.meta.url), 'utf8'), {
+    compilerOptions: { target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.ESNext },
+  }).outputText;
+
+const server = createServer((req, res) => {
+  const url = new URL(req.url, 'http://127.0.0.1');
+  if (url.pathname === '/badge.js') {
+    res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' }).end(badgeCode);
+    return;
+  }
+  const count = Number(url.searchParams.get('count') ?? 1);
+  res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(\`<!doctype html>
+    <div id="badge"></div>
+    <script type="module">
+      import { formatBadge } from '/badge.js';
+      document.getElementById('badge').textContent = formatBadge(\${count});
+    </script>\`);
+});
+
+server.listen(Number(process.env.PORT), '127.0.0.1');
+`);
+
+    writeFileSync(join(root, 'e2e/selected.spec.ts'), `
+import { expect, test } from '@playwright/test';
+
+test('checks selected badge', async ({ page }) => {
+  await page.goto('/?count=1');
+  await expect(page.locator('#badge')).toHaveText('ACTIVE');
+  await page.goto('/?count=0');
+  await expect(page.locator('#badge')).toHaveText('IDLE');
+});
+`);
+
+    // Unselected spec intentionally fails so any accidental inclusion causes baseline_error.
+    writeFileSync(join(root, 'e2e/unselected.spec.ts'), `
+import { expect, test } from '@playwright/test';
+
+test('must not be selected', async () => {
+  expect(false).toBe(true);
+});
+`);
+
+    // 1. Fallback with single --project and single --test: baseline passes with exactly 1 test in 1 project.
+    const singleFallbackRun = spawnSync(process.execPath, [
+      'bin/tmt.mjs', 'analyze', root, 'src/badge.ts',
+      '--runner', 'playwright', '--mutators', 'targeted',
+      '--project', 'chromium',
+      '--test', 'e2e/selected.spec.ts',
+    ], { encoding: 'utf8', timeout: 120_000, env: { ...process.env, SERVE_FROZEN: '1' } });
+    assert.equal(singleFallbackRun.status, 1, `expected exit 1 for unconfirmed frozen fallback, got ${singleFallbackRun.status}\n${singleFallbackRun.stderr}`);
+    const singleFallback = JSON.parse(singleFallbackRun.stdout);
+    assert.equal(singleFallback.operatorExecution, 'source-rewrite');
+    assert.equal(singleFallback.baseline?.status, 'passed');
+    assert.equal(singleFallback.baseline?.tests?.length ?? singleFallback.baseline?.tests, 1);
+    assert.equal(singleFallback.baseline.tests[0].project, 'chromium');
+    assert.equal(singleFallback.baseline.tests[0].file, 'e2e/selected.spec.ts');
+
+    // 2. Fallback with repeated --project flags and single --test: baseline passes with exactly 2 tests (2 projects x 1 spec).
+    const multiFallbackRun = spawnSync(process.execPath, [
+      'bin/tmt.mjs', 'analyze', root, 'src/badge.ts',
+      '--runner', 'playwright', '--mutators', 'targeted',
+      '--project', 'chromium', '--project', 'chromium-alt',
+      '--test', 'e2e/selected.spec.ts',
+    ], { encoding: 'utf8', timeout: 120_000, env: { ...process.env, SERVE_FROZEN: '1' } });
+    assert.equal(multiFallbackRun.status, 1, `expected exit 1 for unconfirmed frozen fallback, got ${multiFallbackRun.status}\n${multiFallbackRun.stderr}`);
+    const multiFallback = JSON.parse(multiFallbackRun.stdout);
+    assert.equal(multiFallback.operatorExecution, 'source-rewrite');
+    assert.equal(multiFallback.baseline?.status, 'passed');
+    assert.equal(multiFallback.baseline?.tests?.length ?? multiFallback.baseline?.tests, 2);
+    assert.deepEqual(multiFallback.baseline.tests.map(t => t.project).sort(), ['chromium', 'chromium-alt']);
+    assert.ok(multiFallback.baseline.tests.every(t => t.file === 'e2e/selected.spec.ts'));
+
+    // 3. Warm session with same --project and --test uses the exact same project and file scope.
+    const warmRun = JSON.parse(exec(process.execPath, [
+      'bin/tmt.mjs', 'analyze', root, 'src/badge.ts',
+      '--runner', 'playwright', '--mutators', 'targeted',
+      '--project', 'chromium',
+      '--test', 'e2e/selected.spec.ts',
+    ], { ...process.env, SERVE_FROZEN: '0' }));
+    assert.equal(warmRun.operatorExecution, 'session');
+    assert.equal(warmRun.evaluation, 'evaluated');
+    assert.equal(warmRun.baseline?.tests, 1);
+    assert.ok(warmRun.mutants.some(m => m.status === 'killed'));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('Playwright flags frozen prebuilt bundle without gap recommendations, reports kills and reachedTests for copied source, and retains unreached for loaded unvisited branches', () => {
+  assert.ok(process.env.PORT, 'Run this fixture with an assigned PORT');
+  const root = mkdtempSync(join(tmpdir(), 'tmt-playwright-prebuilt-vs-source-'));
+  try {
+    mkdirSync(join(root, 'src'), { recursive: true });
+    mkdirSync(join(root, 'e2e'), { recursive: true });
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'pw-prebuilt-vs-source-e2e', type: 'module' }));
+    writeFileSync(join(root, 'playwright.config.ts'), `
+import { defineConfig } from '@playwright/test';
+const port = Number(process.env.PORT);
+const baseURL = 'http://127.0.0.1:' + port;
+export default defineConfig({
+  testDir: './e2e',
+  fullyParallel: false,
+  retries: 0,
+  use: { baseURL, browserName: 'chromium' },
+  projects: [{ name: 'chromium' }],
+  webServer: { command: 'node server.mjs', url: baseURL, reuseExistingServer: false },
+});
+`);
+    writeFileSync(join(root, 'src/clock.ts'), [
+      'export function clockLabel(frozen: boolean, offset: number): string {',
+      '  if (frozen) {',
+      '    return offset >= 1 ? "FROZEN+" : "FROZEN";',
+      '  }',
+      '  return offset >= 10 ? "LIVE+" : "LIVE";',
+      '}',
+    ].join('\n') + '\n');
+
+    writeFileSync(join(root, 'server.mjs'), `
+import { readFileSync } from 'node:fs';
+import { createServer } from 'node:http';
+import ts from 'typescript';
+
+const serveFrozen = process.env.SERVE_FROZEN === '1';
+const clockCode = serveFrozen
+  ? 'export function clockLabel(frozen, offset) { if (frozen) { return offset >= 1 ? "FROZEN+" : "FROZEN"; } return offset >= 10 ? "LIVE+" : "LIVE"; }'
+  : ts.transpileModule(readFileSync(new URL('./src/clock.ts', import.meta.url), 'utf8'), {
+    compilerOptions: { target: ts.ScriptTarget.ESNext, module: ts.ModuleKind.ESNext },
+  }).outputText;
+
+const server = createServer((req, res) => {
+  const url = new URL(req.url, 'http://127.0.0.1');
+  if (url.pathname === '/clock.js') {
+    res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8' }).end(clockCode);
+    return;
+  }
+  const offset = Number(url.searchParams.get('offset') ?? 1);
+  res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' }).end(\`<!doctype html>
+    <div id="clock"></div>
+    <script type="module">
+      import { clockLabel } from '/clock.js';
+      document.getElementById('clock').textContent = clockLabel(true, \${offset});
+    </script>\`);
+});
+
+server.listen(Number(process.env.PORT), '127.0.0.1');
+`);
+
+    writeFileSync(join(root, 'e2e/clock.spec.ts'), `
+import { expect, test } from '@playwright/test';
+
+test('checks frozen clock badge', async ({ page }) => {
+  await page.goto('/?offset=1');
+  await expect(page.locator('#clock')).toHaveText('FROZEN+');
+  await page.goto('/?offset=0');
+  await expect(page.locator('#clock')).toHaveText('FROZEN');
+});
+`);
+
+    // 1. Frozen bundle run: flags unresolved source application and avoids test gap recommendations.
+    const frozenJsonRun = spawnSync(process.execPath, [
+      'bin/tmt.mjs', 'analyze', root, 'src/clock.ts',
+      '--runner', 'playwright', '--mutators', 'targeted',
+      '--project', 'chromium', '--test', 'e2e/clock.spec.ts',
+    ], { encoding: 'utf8', timeout: 120_000, env: { ...process.env, SERVE_FROZEN: '1' } });
+    assert.equal(frozenJsonRun.status, 1, `expected exit 1 for incomplete frozen bundle run, got ${frozenJsonRun.status}\n${frozenJsonRun.stderr}`);
+    const frozenJson = JSON.parse(frozenJsonRun.stdout);
+    assert.equal(frozenJson.operatorExecution, 'source-rewrite');
+    assert.equal(frozenJson.sessionFallbackReason, 'no-runtime-switch-observations');
+    assert.equal(frozenJson.sourceApplication, 'unconfirmed');
+    assert.equal(frozenJson.evaluation, 'incomplete');
+    assert.equal(frozenJson.diagnostics.length, 0, 'frozen bundle must not emit test gap recommendations');
+    assert.ok(frozenJson.mutants.length >= 1);
+    assert.ok(frozenJson.mutants.every(m => m.status === 'unevaluated' && m.sourceVerdict === 'survived'));
+
+    const frozenTextRun = spawnSync(process.execPath, [
+      'bin/tmt.mjs', 'analyze', root, 'src/clock.ts',
+      '--runner', 'playwright', '--mutators', 'targeted',
+      '--project', 'chromium', '--test', 'e2e/clock.spec.ts',
+      '--format', 'text',
+    ], { encoding: 'utf8', timeout: 120_000, env: { ...process.env, SERVE_FROZEN: '1' } });
+    assert.equal(frozenTextRun.status, 1, frozenTextRun.stderr);
+    const frozenText = frozenTextRun.stdout;
+    assert.match(frozenText, /Warning: no runtime switch observations were recorded and source-rewrite edits may not have reached the app/);
+    assert.match(frozenText, /external daemon or serves a prebuilt UI bundle/);
+    assert.doesNotMatch(frozenText, /Test gaps:/);
+
+    // 2. Copied-source run: warm session reports kills with reaching test identities,
+    //    while the unvisited branch (line 5) retains its existing `unreached` status.
+    const sourceJson = JSON.parse(exec(process.execPath, [
+      'bin/tmt.mjs', 'analyze', root, 'src/clock.ts',
+      '--runner', 'playwright', '--mutators', 'targeted',
+      '--project', 'chromium', '--test', 'e2e/clock.spec.ts',
+    ], { ...process.env, SERVE_FROZEN: '0' }));
+    assert.equal(sourceJson.operatorExecution, 'session');
+    assert.equal(sourceJson.evaluation, 'evaluated');
+    assert.equal(sourceJson.sourceApplication, undefined);
+    const killed = sourceJson.mutants.find(m => m.location.line === 3 && m.status === 'killed');
+    assert.ok(killed, `expected killed mutant on line 3, got ${JSON.stringify(sourceJson.mutants)}`);
+    assert.ok(Array.isArray(killed.reachedTests) && killed.reachedTests.length === 1);
+    assert.equal(killed.reachedTests[0].file, 'e2e/clock.spec.ts');
+    assert.equal(killed.reachedTests[0].name, 'checks frozen clock badge');
+
+    const unreachedBranch = sourceJson.mutants.find(m => m.location.line === 5 && m.status === 'unreached');
+    assert.ok(unreachedBranch, `expected unreached mutant on unvisited branch (line 5), got ${JSON.stringify(sourceJson.mutants)}`);
+    assert.equal(unreachedBranch.reachedTests, undefined);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

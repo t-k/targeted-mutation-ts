@@ -1,0 +1,7 @@
+Runner	SessionOutcome	CheckpointMode	InterruptStage	PlaywrightSelection	SourceApplication
+Vitest	WarmThenIsolated	Fresh	DuringIsolated	None	Observed
+Vitest	WarmThenIsolated	Resume	None	None	Observed
+Vitest	WarmThenIsolated	Fresh	FreshTimeout	None	Observed
+Playwright	NoRuntimeObservations	None	None	SingleProjectAndTest	FrozenBundle
+Playwright	NoRuntimeObservations	None	None	MultiProjectAndTest	FallbackKilled
+Playwright	WarmSettled	None	None	SingleProjectAndTest	Observed
