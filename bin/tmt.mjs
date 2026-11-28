@@ -32,7 +32,9 @@ try {
       config: { type: 'string' },
       test: { type: 'string', multiple: true },
       related: { type: 'boolean' },
+      exclude: { type: 'string', multiple: true },
       'copy-exclude': { type: 'string', multiple: true },
+      'copy-include': { type: 'string', multiple: true },
       'copy-exclude-gitignore': { type: 'boolean' },
       'no-copy-exclude-gitignore': { type: 'boolean' },
       'exclude-rule': { type: 'string', multiple: true },
@@ -69,8 +71,15 @@ try {
     console.log(JSON.stringify(result, null, 2));
     if (result.path === 'diagnostic') process.exitCode = 1;
   } else if (command === 'analyze') {
-    const [project = '.', ...rawFiles] = positionals;
-    const { gitignoredCopyExclusions, loadProjectConfig, mergeProjectConfig, validateAndExpandInputs } = await import('../src/project-config.mjs');
+    const {
+      detectGitignoreBaselineHints,
+      gitignoredCopyExclusions,
+      loadProjectConfig,
+      mergeProjectConfig,
+      resolveAnalyzePositionals,
+      validateAndExpandInputs,
+    } = await import('../src/project-config.mjs');
+    const { project, files: rawFiles } = resolveAnalyzePositionals(positionals);
     if (values['type-check'] && values['no-type-check']) throw new Error('--type-check cannot be combined with --no-type-check');
     if (values['copy-exclude-gitignore'] && values['no-copy-exclude-gitignore']) {
       throw new Error('--copy-exclude-gitignore cannot be combined with --no-copy-exclude-gitignore');
@@ -171,27 +180,53 @@ try {
     const { parseShard, parseShardingStrategy, listCandidates } = await import('../src/shard.mjs');
     const shard = parseShard(runValues.shard);
     const sharding = parseShardingStrategy(runValues.sharding);
-    const { loadBaseline, writeBaseline, applyBaseline } = await import('../src/baseline.mjs');
-    const baselineIds = runValues.baseline ? loadBaseline(runValues.baseline) : null;
+    const { loadBaselineWithReasons, writeBaseline, applyBaseline } = await import('../src/baseline.mjs');
+    const baselineData = runValues.baseline ? loadBaselineWithReasons(runValues.baseline) : null;
     // Validate project paths and expand any globs before copying the project to a temporary directory.
     const validated = validateAndExpandInputs(project, merged.files, runValues);
     const files = validated.files;
+    if (validated.exclude?.length) runValues.exclude = validated.exclude;
     if (validated.tests) runValues.test = validated.tests;
+    let gitignoredExclusions = [];
     if (runValues['copy-exclude-gitignore']) {
-      const ignoredExclusions = gitignoredCopyExclusions(validated.root);
-      if (ignoredExclusions.length) {
-        runValues['copy-exclude'] = [...new Set([...(runValues['copy-exclude'] ?? []), ...ignoredExclusions])];
+      gitignoredExclusions = gitignoredCopyExclusions(validated.root);
+      if (gitignoredExclusions.length) {
+        runValues['copy-exclude'] = [...new Set([...(runValues['copy-exclude'] ?? []), ...gitignoredExclusions])];
       }
     }
-    if (runValues['copy-exclude']?.length) {
-      const { resolveCopyExclusions } = await import('../src/vitest.mjs');
-      const activeExclusions = resolveCopyExclusions(validated.root, runValues['copy-exclude'], {
-        onMissing: path => {
-          const safePath = /[\x00-\x1f\x7f]/.test(path) ? JSON.stringify(path) : path;
-          process.stderr.write(`Warning: Copy exclusion does not exist, skipping: ${safePath}\n`);
-        },
-      });
-      runValues['copy-exclude'] = activeExclusions.map(entry => relative(validated.root, entry));
+    if (runValues['copy-exclude']?.length || runValues['copy-include']?.length) {
+      const { resolveCopyExclusions, resolveCopyInclusions } = await import('../src/vitest.mjs');
+      if (runValues['copy-include']?.length) {
+        const activeInclusions = resolveCopyInclusions(validated.root, runValues['copy-include'], {
+          onMissing: path => {
+            const safePath = /[\x00-\x1f\x7f]/.test(path) ? JSON.stringify(path) : path;
+            process.stderr.write(`Warning: Copy inclusion does not exist, skipping: ${safePath}\n`);
+          },
+        });
+        runValues['copy-include'] = activeInclusions.map(entry => relative(validated.root, entry));
+      }
+      if (runValues['copy-exclude']?.length) {
+        const activeExclusions = resolveCopyExclusions(validated.root, runValues['copy-exclude'], {
+          onMissing: path => {
+            const safePath = /[\x00-\x1f\x7f]/.test(path) ? JSON.stringify(path) : path;
+            process.stderr.write(`Warning: Copy exclusion does not exist, skipping: ${safePath}\n`);
+          },
+        });
+        runValues['copy-exclude'] = activeExclusions.map(entry => relative(validated.root, entry));
+      }
+      if (gitignoredExclusions.length && runValues['copy-include']?.length) {
+        const activeInclusions = resolveCopyInclusions(validated.root, runValues['copy-include']);
+        const normKey = value => (process.platform === 'win32' ? value.toLowerCase() : value);
+        gitignoredExclusions = gitignoredExclusions.filter(entry => {
+          const entryAbs = normKey(resolve(validated.root, entry));
+          // Only drop a gitignored entry from hint candidates when it is itself fully re-included,
+          // not when only a nested child inside it was re-included.
+          return !activeInclusions.some(inc => {
+            const incAbs = normKey(inc);
+            return entryAbs === incAbs || entryAbs.startsWith(incAbs + (process.platform === 'win32' ? '\\' : '/'));
+          });
+        });
+      }
     }
     const logProgress = runValues.progress ? message => process.stderr.write(`[tmt] ${message}\n`) : () => {};
     const seenTypeCheckWarnings = new Set();
@@ -215,11 +250,13 @@ try {
           runnerPackage(validated.root, 'vitest');
           relatedCopy = createCopy(validated.root, {
             exclude: runValues['copy-exclude'],
+            include: runValues['copy-include'],
             onProgress: runValues.onProgress,
           });
           const resolved = await resolveRelatedVitestSpecs(validated.root, relatedTargets, {
             config: runValues.config,
             copyExclude: runValues['copy-exclude'],
+            copyInclude: runValues['copy-include'],
             onProgress: runValues.onProgress,
             copy: relatedCopy,
             ...(relatedTimeoutSeconds ? { timeout: relatedTimeoutSeconds * 1000 } : {}),
@@ -290,11 +327,17 @@ try {
       const { detectWeakenedTests } = await import('../src/weakened-tests.mjs');
       result = await detectWeakenedTests(project, result, runValues);
     }
+    if (result.evaluation === 'baseline_error' && gitignoredExclusions.length) {
+      const hints = detectGitignoreBaselineHints(result.baseline, gitignoredExclusions, runValues['copy-include'] ?? []);
+      if (hints.length) {
+        result = { ...result, baseline: { ...result.baseline, hints } };
+      }
+    }
     if (!runValues.list && runValues['write-baseline'] && result.evaluation !== 'baseline_error') {
       writeBaseline(runValues['write-baseline'], result.diagnostics ?? []);
     }
-    if (!runValues.list && baselineIds) {
-      result = applyBaseline(result, baselineIds);
+    if (!runValues.list && baselineData) {
+      result = applyBaseline(result, baselineData);
     }
     logProgress(formatProgressSummary(result));
     const jsonPayload = (format === 'json' || runValues['json-out']) ? JSON.stringify(result, null, 2) : null;

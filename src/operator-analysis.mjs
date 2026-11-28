@@ -61,6 +61,7 @@ function sessionVerdicts(session, extras = []) {
       tests: mutant.tests,
       ...(mutant.reachedTests?.length ? { reachedTests: mutant.reachedTests } : {}),
       ...(mutant.statusReason ? { statusReason: mutant.statusReason } : {}),
+      ...(mutant.fallback ? { fallback: mutant.fallback } : {}),
     };
   };
 }
@@ -82,6 +83,8 @@ async function besideSession(project, files, options, run, profile, stopsSession
     mutators: profile, lines: options.lines, since: options.since, config: options.config, test: options.test,
     'copy-exclude': options['copy-exclude'], dialect: options.dialect, 'isolated-trials': options['isolated-trials'],
     concurrency: options.concurrency, 'verify-trials': options['verify-trials'], timeout: options.timeout, signal: stop.signal, extras,
+    ...(options['copy-include']?.length ? { 'copy-include': options['copy-include'] } : {}),
+    ...(options.exclude?.length ? { exclude: options.exclude } : {}),
     ...(options.shardKeys ? { shardKeys: options.shardKeys } : {}),
     ...(options.checkpointStore ? { checkpointStore: options.checkpointStore } : {}),
     ...(options['exclude-rule'] ? { 'exclude-rule': options['exclude-rule'] } : {}),

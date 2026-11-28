@@ -1,9 +1,9 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync, globSync, readdirSync, readFileSync, statSync } from 'node:fs';
-import { isAbsolute, relative, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { listSource } from './scope.mjs';
-import { canonicalPath, inside, resolveCopyExclusions } from './vitest.mjs';
+import { filterExcludedFiles, listSource, normalizeExcludePattern } from './scope.mjs';
+import { canonicalPath, inside, resolveCopyExclusions, resolveCopyInclusions } from './vitest.mjs';
 
 const GLOB_CHARS = /[*?[\]{]/;
 const CONFIG_JSON = 'targeted-mutation.config.json';
@@ -67,6 +67,175 @@ function hasProjectMarkers(dir) {
     }
   } catch {}
   return false;
+}
+
+function lexicalRelativeInsideRoot(root, rawPath) {
+  const abs = resolve(root, rawPath);
+  const parent = dirname(abs);
+  const parentCanonical = existsSync(parent) ? canonicalPath(parent) : parent;
+  const candidate = join(parentCanonical, basename(abs));
+  const rel = relative(root, candidate);
+  if (Boolean(rel) && !isAbsolute(rel) && rel !== '..' && !rel.startsWith('..' + sep)) {
+    return rel;
+  }
+  return null;
+}
+
+// Resolve `analyze [PROJECT] [FILE...]` positionals so file paths, globs, negated patterns,
+// and non-project subdirectories inside the current project automatically default PROJECT to ".".
+export function resolveAnalyzePositionals(positionals = [], cwd = '.') {
+  if (!positionals.length) return { project: '.', files: [] };
+  const [first, ...rest] = positionals;
+  if (first === '.' || first === './' || first === '.\\') {
+    return { project: first, files: rest };
+  }
+  const cwdRoot = canonicalPath(cwd);
+  const isInsideCwd = rawPath => {
+    const text = String(rawPath ?? '');
+    if (!text || isAbsolute(text)) return false;
+    const rel = relative(cwdRoot, resolve(cwdRoot, text));
+    return Boolean(rel) && !isAbsolute(rel) && rel !== '..' && !rel.startsWith('..' + sep);
+  };
+  if (first.startsWith('!') && first.length > 1 && isInsideCwd(first.slice(1))) {
+    return { project: '.', files: positionals };
+  }
+  const firstCandidate = resolve(cwdRoot, first);
+  const st = statSync(firstCandidate, { throwIfNoEntry: false });
+  if (st) {
+    if (!st.isDirectory()) {
+      const targetAbs = canonicalPath(firstCandidate);
+      const relFromCwd = relative(cwdRoot, targetAbs);
+      const insideCwd = Boolean(relFromCwd) && !isAbsolute(relFromCwd) && relFromCwd !== '..' && !relFromCwd.startsWith('..' + sep);
+      if (insideCwd) {
+        const lexicalRel = isAbsolute(first) ? lexicalRelativeInsideRoot(cwdRoot, first) : null;
+        const preserved = isAbsolute(first) ? (lexicalRel ?? relFromCwd) : first;
+        return { project: '.', files: [preserved, ...rest] };
+      }
+      return { project: first, files: rest };
+    }
+    // Existing directory: if it is a subdirectory inside cwd without its own project markers
+    // while cwd itself is a project root, treat it as a FILE/directory target inside "."
+    // unless trailing args explicitly resolve inside that directory (preserving `analyze DIR FILE|GLOB`).
+    if (isInsideCwd(first) && !hasProjectMarkers(canonicalPath(firstCandidate)) && hasProjectMarkers(cwdRoot)) {
+      const restResolvesInsideFirst = rest.length > 0 && rest.some(arg => {
+        const clean = typeof arg === 'string' && arg.startsWith('!') && arg.length > 1 ? arg.slice(1) : String(arg ?? '');
+        if (!clean || isAbsolute(clean)) return false;
+        return hasGlobPattern(clean)
+          ? expandProjectGlob(firstCandidate, clean).length > 0
+          : existsSync(resolve(firstCandidate, clean));
+      });
+      if (!restResolvesInsideFirst) {
+        return { project: '.', files: positionals };
+      }
+    }
+    return { project: first, files: rest };
+  }
+  if (isInsideCwd(first) && (hasGlobPattern(first) || (SOURCE_FILE_EXT.test(first) && hasProjectMarkers(cwdRoot)))) {
+    return { project: '.', files: positionals };
+  }
+  return { project: first, files: rest };
+}
+
+const IMPORT_RESOLUTION_RE = [
+  /Failed to resolve import\s+["']([^"']+)["']/gi,
+  /Cannot find (?:module|package)\s+["']([^"']+)["']/gi,
+  /Could not resolve\s+["']([^"']+)["']/gi,
+  /ENOENT:[^'"\n]*["']([^"']+)["']/gi,
+];
+
+function stripSpecifierPrefix(specifier) {
+  let clean = String(specifier ?? '').trim().replaceAll('\\', '/').replace(/\?.*$/, '').replace(/(?!^)#.*$/, '');
+  if (!clean) return '';
+  // Strip alias prefixes like `@/`, `~/`, `#` (Node subpath imports), or relative `./` / `../`.
+  clean = clean.replace(/^(?:[@~][^/]*\/|#|(?:(?:\.\.?)\/)+)/, '');
+  clean = clean.replace(/^\/+/, '');
+  return clean;
+}
+
+function stripKnownExtension(path) {
+  return path.replace(/\.(?:[cm]?[jt]sx?|json)$/i, '');
+}
+
+function importMatchesExcludedPath(specifier, excludedPath, { requireFullSuffix = false } = {}) {
+  const normSpec = stripSpecifierPrefix(specifier);
+  if (!normSpec) return false;
+  const normExcluded = String(excludedPath ?? '').replaceAll('\\', '/').replace(/^\/+|\/+$/g, '');
+  if (!normExcluded) return false;
+  const specNoExt = stripKnownExtension(normSpec);
+  const exclNoExt = stripKnownExtension(normExcluded);
+  const parts = normExcluded.split('/');
+  const candidates = new Set();
+  const maxStart = requireFullSuffix ? Math.max(0, parts.length - 2) : parts.length - 1;
+  for (let i = 0; i <= maxStart; i++) {
+    const suffix = parts.slice(i).join('/');
+    if (suffix && suffix !== '.' && suffix !== '..') {
+      candidates.add(suffix);
+      candidates.add(stripKnownExtension(suffix));
+    }
+  }
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    if (normSpec === candidate || normSpec.startsWith(candidate + '/') ||
+        specNoExt === candidate || specNoExt.startsWith(candidate + '/')) {
+      return true;
+    }
+  }
+  if (normSpec.endsWith('/' + normExcluded) || specNoExt.endsWith('/' + exclNoExt) ||
+      normSpec.includes('/' + normExcluded + '/') || specNoExt.includes('/' + exclNoExt + '/')) {
+    return true;
+  }
+  return false;
+}
+
+// Check baseline failure messages for unresolved imports that match paths excluded by copyExcludeGitignore.
+export function detectGitignoreBaselineHints(baseline, gitignoredExclusions = [], copyInclusions = []) {
+  if (!baseline || !gitignoredExclusions?.length) return [];
+  const texts = [];
+  for (const err of baseline.fileErrors ?? []) {
+    if (err?.message) texts.push(String(err.message));
+  }
+  for (const err of baseline.errors ?? []) {
+    if (err) texts.push(String(err));
+  }
+  for (const failed of baseline.failedTests ?? []) {
+    for (const failure of failed?.failures ?? []) {
+      if (failure) texts.push(String(failure));
+    }
+  }
+  if (baseline.output) texts.push(String(baseline.output));
+  if (!texts.length) return [];
+
+  const specifiers = new Set();
+  for (const text of texts) {
+    for (const re of IMPORT_RESOLUTION_RE) {
+      re.lastIndex = 0;
+      let match;
+      while ((match = re.exec(text)) !== null) {
+        if (match[1]) specifiers.add(match[1]);
+      }
+    }
+  }
+  if (!specifiers.size) return [];
+
+  const normalizedInclusions = (copyInclusions ?? []).map(p => String(p).replaceAll('\\', '/').replace(/^\/+|\/+$/g, '')).filter(Boolean);
+  const hints = [];
+  const seenPaths = new Set();
+  for (const ignoredPath of gitignoredExclusions) {
+    const cleanPath = String(ignoredPath).replaceAll('\\', '/');
+    if (seenPaths.has(cleanPath)) continue;
+    for (const spec of specifiers) {
+      if (normalizedInclusions.some(inc => importMatchesExcludedPath(spec, inc, { requireFullSuffix: true }))) continue;
+      if (importMatchesExcludedPath(spec, cleanPath)) {
+        seenPaths.add(cleanPath);
+        hints.push(
+          `"${sanitizeText(cleanPath)}" was excluded by --copy-exclude-gitignore ("copyExcludeGitignore": true) and matches unresolved import "${sanitizeText(spec)}". ` +
+          `Keep it in temporary copies with --copy-include ${formatCliArg(cleanPath)} (or "copyInclude": [${JSON.stringify(cleanPath)}]).`,
+        );
+        break;
+      }
+    }
+  }
+  return hints;
 }
 
 // Validate CLI/config source, test, config, and spec paths on the real project root
@@ -136,8 +305,9 @@ export function validateAndExpandInputs(project, files = [], options = {}) {
   }
 
   let dirExclusions = null;
-  const getDirExclusions = () => {
-    if (dirExclusions !== null) return dirExclusions;
+  let dirInclusions = null;
+  const getDirFilters = () => {
+    if (dirExclusions !== null) return { exclusions: dirExclusions, inclusions: dirInclusions };
     const rawExcludes = [
       ...(options['copy-exclude'] ?? []),
       ...(options['copy-exclude-gitignore'] ? gitignoredCopyExclusions(root) : []),
@@ -145,11 +315,29 @@ export function validateAndExpandInputs(project, files = [], options = {}) {
     dirExclusions = rawExcludes.length
       ? resolveCopyExclusions(root, [...new Set(rawExcludes)], { onMissing: () => {} })
       : [];
-    return dirExclusions;
+    const rawIncludes = options['copy-include'] ?? [];
+    dirInclusions = rawIncludes.length
+      ? resolveCopyInclusions(root, [...new Set(rawIncludes)], { onMissing: () => {} })
+      : [];
+    return { exclusions: dirExclusions, inclusions: dirInclusions };
   };
 
-  const expandedFiles = [];
+  const positiveFiles = [];
+  const negatedExcludes = [];
   for (const entry of files) {
+    if (typeof entry === 'string' && entry.startsWith('!') && entry.length > 1) {
+      negatedExcludes.push(entry.slice(1));
+    } else {
+      positiveFiles.push(entry);
+    }
+  }
+  const combinedExcludes = [...new Set([...(options.exclude ?? []), ...negatedExcludes])];
+  for (const pattern of combinedExcludes) {
+    normalizeExcludePattern(root, pattern);
+  }
+
+  const expandedFiles = [];
+  for (const entry of positiveFiles) {
     if (hasGlobPattern(entry)) {
       const matched = expandProjectGlob(root, entry);
       if (!matched.length) throw new Error(`Source file pattern matched no files: ${entry}`);
@@ -163,15 +351,22 @@ export function validateAndExpandInputs(project, files = [], options = {}) {
       }
       const targetDirOrFile = inside(root, entry);
       if (st.isDirectory()) {
-        const matched = listSource(root, getDirExclusions(), targetDirOrFile).sort();
+        const { exclusions, inclusions } = getDirFilters();
+        const matched = listSource(root, exclusions, targetDirOrFile, inclusions).sort();
         if (!matched.length) {
           throw new Error(`No source files found in directory: ${entry}`);
         }
         expandedFiles.push(...matched);
       } else {
-        expandedFiles.push(entry);
+        const normalizedEntry = isAbsolute(entry) ? (lexicalRelativeInsideRoot(root, entry) ?? relative(root, targetDirOrFile)) : entry;
+        expandedFiles.push(normalizedEntry);
       }
     }
+  }
+
+  const filteredFiles = filterExcludedFiles(root, [...new Set(expandedFiles)], combinedExcludes);
+  if (positiveFiles.length > 0 && expandedFiles.length > 0 && filteredFiles.length === 0) {
+    throw new Error('All selected source files were excluded by exclude patterns');
   }
 
   let expandedTests;
@@ -197,7 +392,8 @@ export function validateAndExpandInputs(project, files = [], options = {}) {
 
   return {
     root,
-    files: [...new Set(expandedFiles)],
+    files: filteredFiles,
+    exclude: combinedExcludes,
     tests: expandedTests,
   };
 }
@@ -271,8 +467,8 @@ export async function loadProjectConfig(project, { allowCodeConfig = true } = {}
 }
 
 const KNOWN_CONFIG_KEYS = new Set([
-  'runner', 'files', 'tests', 'projects', 'mutators', 'timeout', 'baselineTimeout', 'baselineWorkers',
-  'concurrency', 'config', 'tsconfig', 'spec', 'baseline', 'related', 'copyExclude', 'copyExcludeGitignore',
+  'runner', 'files', 'exclude', 'tests', 'projects', 'mutators', 'timeout', 'baselineTimeout', 'baselineWorkers',
+  'concurrency', 'config', 'tsconfig', 'spec', 'baseline', 'related', 'copyExclude', 'copyInclude', 'copyExcludeGitignore',
   'excludeRules', 'typeCheck', 'deterministic', 'displaceThresholds', 'isolatedTrials', 'verifyTrials',
   'progress', 'failOnGaps', 'verbose', 'onlyGaps',
 ]);
@@ -280,8 +476,10 @@ const KNOWN_CONFIG_KEYS = new Set([
 const CONFIG_KEY_HINTS = {
   test: 'did you mean "tests"?',
   include: 'did you mean "files"?',
+  excludes: 'did you mean "exclude"?',
   project: 'did you mean "projects"?',
   excludeRule: 'did you mean "excludeRules"?',
+  copyIncludes: 'did you mean "copyInclude"?',
 };
 
 export function mergeProjectConfig(configObj, cliValues, cliFiles, { sourceName = CONFIG_JSON, onWarning } = {}) {
@@ -310,9 +508,11 @@ export function mergeProjectConfig(configObj, cliValues, cliFiles, { sourceName 
   if (values.related === undefined && !values.test?.length && configObj.related === true) values.related = true;
   if (!values.test?.length && !values.related && Array.isArray(configObj.tests)) values.test = configObj.tests.map(String);
   if (!values['copy-exclude']?.length && Array.isArray(configObj.copyExclude)) values['copy-exclude'] = configObj.copyExclude.map(String);
+  if (!values['copy-include']?.length && Array.isArray(configObj.copyInclude)) values['copy-include'] = configObj.copyInclude.map(String);
   if (values['copy-exclude-gitignore'] === undefined && values['no-copy-exclude-gitignore'] !== true && typeof configObj.copyExcludeGitignore === 'boolean') {
     values['copy-exclude-gitignore'] = configObj.copyExcludeGitignore;
   }
+  if (!values.exclude?.length && Array.isArray(configObj.exclude)) values.exclude = configObj.exclude.map(String);
   if (!values['exclude-rule']?.length && Array.isArray(configObj.excludeRules)) values['exclude-rule'] = configObj.excludeRules.map(String);
   if (values['type-check'] === undefined && values['no-type-check'] !== true && typeof configObj.typeCheck === 'boolean') {
     values['type-check'] = configObj.typeCheck;
@@ -325,6 +525,8 @@ export function mergeProjectConfig(configObj, cliValues, cliFiles, { sourceName 
   if (values['fail-on-gaps'] === undefined && configObj.failOnGaps === true) values['fail-on-gaps'] = true;
   if (values.verbose === undefined && values['only-gaps'] !== true && configObj.verbose === true) values.verbose = true;
   if (values['only-gaps'] === undefined && values.verbose !== true && configObj.onlyGaps === true) values['only-gaps'] = true;
-  const files = cliFiles.length ? cliFiles : (Array.isArray(configObj.files) ? configObj.files.map(String) : []);
+  const configFiles = Array.isArray(configObj.files) ? configObj.files.map(String) : [];
+  const hasPositiveCliFile = cliFiles.some(entry => !(typeof entry === 'string' && entry.startsWith('!') && entry.length > 1));
+  const files = hasPositiveCliFile ? cliFiles : [...configFiles, ...cliFiles];
   return { files, values };
 }

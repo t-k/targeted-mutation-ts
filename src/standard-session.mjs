@@ -341,7 +341,7 @@ try {
     let hadRunnerError = false;
     let lastRunnerError = null;
     let abortSession = false;
-    const totals = { inWorker: 0, isolated: 0, sampled: 0, mismatches: [], inWorkerUsed: false };
+    const totals = { inWorker: 0, isolated: 0, sampled: 0, mismatches: [], inWorkerUsed: false, fallbackReasons: Object.create(null) };
     // Decides a list of reached trials: inside workers where that holds, in fresh runs for the rest.
     // What a surviving edit changed in the code its tests run, with the tests by name.
     const effectsOf = runs => {
@@ -471,13 +471,22 @@ try {
       for (const { mutant, plan } of freshQueue) {
         const { id } = mutant;
         const expected = plan.staticActivation || !supportsIds ? tests : new Map([...plan.covered].map(testId => [testId, tests.get(testId)]));
-        if (!sampled.has(id)) totals.isolated++;
+        const fallbackReason = sampled.has(id)
+          ? undefined
+          : (reasons.get(id) ?? (isolatedTrials ? 'isolated-trials' : (plans === null ? 'baseline-records-unmatched' : 'not-answered')));
+        if (!sampled.has(id)) {
+          totals.isolated++;
+          if (fallbackReason) {
+            totals.fallbackReasons[fallbackReason] = (totals.fallbackReasons[fallbackReason] ?? 0) + 1;
+          }
+        }
         if (trackProgress) {
           record({
             progress: {
               completed: settledBeforeDecide + persistedWarm + freshDone,
               stage: 'isolated',
               trialTimeoutSeconds,
+              ...(fallbackReason ? { reason: fallbackReason } : {}),
             },
           });
         }
@@ -518,7 +527,7 @@ try {
           if (!disposed) abortSession = true;
         }
         if (sampled.has(id) && assessed.status !== settled.get(id).status) totals.mismatches.push({ id, worker: settled.get(id).status, fresh: assessed.status });
-        report(mutant, { ...assessed, ...changed, ...(reasons.has(id) ? { fallback: reasons.get(id) } : {}) });
+        report(mutant, { ...assessed, ...changed, ...(fallbackReason ? { fallback: fallbackReason } : {}) });
         freshDone++;
         if (abortSession) break;
       }
@@ -539,8 +548,10 @@ try {
       }
       await decide(extras, (mutant, result) => record({ extra: mutant.index, ...result }));
     }
+    const fallbackReasons = Object.keys(totals.fallbackReasons).length ? { ...totals.fallbackReasons } : undefined;
     record({ trials: { workers: totals.inWorkerUsed ? Math.max(1, lanes.filter(lane => !lane.serial).length) : 1, inWorker: totals.inWorker,
       isolated: totals.isolated,
+      ...(fallbackReasons ? { fallbackReasons } : {}),
       ...(verifyTrials ? { verified: { sampled: totals.sampled, mismatches: totals.mismatches } } : {}) } });
     if (hadRunnerError) {
       record({ error: lastRunnerError ?? 'Vitest fresh trial runner error' });

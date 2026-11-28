@@ -2,19 +2,63 @@ import { execFileSync } from 'node:child_process';
 import { isUtf8 } from 'node:buffer';
 import { closeSync, mkdtempSync, openSync, readSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { relative, resolve, sep } from 'node:path';
-import { canonicalPath, copyPathIsExcluded, inside, resolveCopyExclusions } from './vitest.mjs';
+import { isAbsolute, posix, relative, resolve, sep } from 'node:path';
+import { canonicalPath, copyPathIsExcluded, inside, resolveCopyExclusions, resolveCopyInclusions } from './vitest.mjs';
 
 const sourceName = /(?<!\.d|\.test|\.spec)\.(?:[cm]?[jt]s|[jt]sx)$/;
 const runnerConfig = /^(?:vite|vitest|playwright)(?:\.[^.]+)*\.config\.[cm]?[jt]s$/;
+const EXCLUDE_GLOB_CHARS = /[*?[\]{]/;
 
-export function listSource(root, exclusions = [], dir = root) {
+export function normalizeExcludePattern(root, rawPattern) {
+  const text = String(rawPattern ?? '').trim();
+  if (!text || text.includes('\0')) {
+    throw new Error(`Invalid exclude pattern: ${rawPattern}`);
+  }
+  const slashNorm = text.replaceAll('\\', '/');
+  if (isAbsolute(text) || slashNorm.startsWith('/')) {
+    throw new Error(`Exclude pattern must be inside the project: ${rawPattern}`);
+  }
+  const collapsed = slashNorm.replace(/\/+/g, '/');
+  const stripped = collapsed.replace(/^(?:\.\/)+/, '').replace(/\/+$/, '');
+  if (!stripped || stripped === '.') {
+    throw new Error(`Exclude pattern must be inside the project: ${rawPattern}`);
+  }
+  const segments = stripped.split('/');
+  if (segments.some(part => part === '..')) {
+    throw new Error(`Exclude pattern must be inside the project: ${rawPattern}`);
+  }
+  if (!EXCLUDE_GLOB_CHARS.test(stripped)) {
+    const candidate = resolve(root, stripped);
+    const fromRoot = relative(root, candidate);
+    if (!fromRoot || isAbsolute(fromRoot) || fromRoot === '..' || fromRoot.startsWith('..' + sep)) {
+      throw new Error(`Exclude pattern must be inside the project: ${rawPattern}`);
+    }
+    return fromRoot.replaceAll('\\', '/');
+  }
+  return stripped;
+}
+
+export function matchesExcludePattern(relFile, normalizedPattern) {
+  const relPosix = String(relFile).replaceAll('\\', '/').replace(/^(?:\.\/)+/, '');
+  if (EXCLUDE_GLOB_CHARS.test(normalizedPattern)) {
+    return posix.matchesGlob(relPosix, normalizedPattern);
+  }
+  return relPosix === normalizedPattern || relPosix.startsWith(normalizedPattern + '/');
+}
+
+export function filterExcludedFiles(root, files, excludePatterns = []) {
+  if (!excludePatterns?.length) return files;
+  const normalized = excludePatterns.map(pattern => normalizeExcludePattern(root, pattern));
+  return files.filter(file => !normalized.some(pattern => matchesExcludePattern(file, pattern)));
+}
+
+export function listSource(root, exclusions = [], dir = root, inclusions = []) {
   const result = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     if (entry.name.startsWith('.') || ['node_modules', 'build', 'dist', 'coverage'].includes(entry.name)) continue;
     const path = resolve(dir, entry.name);
-    if (copyPathIsExcluded(root, path, exclusions)) continue;
-    if (entry.isDirectory()) result.push(...listSource(root, exclusions, path));
+    if (copyPathIsExcluded(root, path, exclusions, inclusions)) continue;
+    if (entry.isDirectory()) result.push(...listSource(root, exclusions, path, inclusions));
     if (entry.isFile() && sourceName.test(entry.name) && !runnerConfig.test(entry.name)) result.push(relative(root, path));
   }
   return result;
@@ -149,12 +193,13 @@ function changedRanges(root, revision, files) {
   return ranges;
 }
 
-export function selectScope(rawRoot, files, { lines = [], since, 'copy-exclude': copyExclude } = {}) {
+export function selectScope(rawRoot, files, { lines = [], since, 'copy-exclude': copyExclude, 'copy-include': copyInclude, exclude = [] } = {}) {
   const root = canonicalPath(rawRoot);
   const exclusions = resolveCopyExclusions(root, copyExclude);
+  const inclusions = resolveCopyInclusions(root, copyInclude);
   function sourceFile(file) {
     const path = inside(root, file);
-    if (copyPathIsExcluded(root, resolve(root, file), exclusions) || copyPathIsExcluded(root, path, exclusions)) {
+    if (copyPathIsExcluded(root, resolve(root, file), exclusions, inclusions) || copyPathIsExcluded(root, path, exclusions, inclusions)) {
       throw new Error(`Source is excluded from trial copies: ${file}`);
     }
     return relative(root, path);
@@ -171,8 +216,9 @@ export function selectScope(rawRoot, files, { lines = [], since, 'copy-exclude':
     ranges.set(file, [...(ranges.get(file) ?? []), [+match[2], +match[3]]]);
   }
 
-  const selection = files.length ? files : lines.length ? [...ranges.keys()] : listSource(root, exclusions);
-  const paths = [...new Set(selection.map(sourceFile))].sort().filter(file => !lines.length || ranges.has(file));
+  const selection = files.length ? files : lines.length ? [...ranges.keys()] : listSource(root, exclusions, root, inclusions);
+  const filteredSelection = filterExcludedFiles(root, [...new Set(selection.map(sourceFile))].sort(), exclude);
+  const paths = filteredSelection.filter(file => !lines.length || ranges.has(file));
   let tracked;
   let patches;
   let discovered;

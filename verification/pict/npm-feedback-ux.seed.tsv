@@ -1,0 +1,7 @@
+CopyFilter	TargetExclude	PositionalRoot	BaselineReason	FallbackReason
+None	None	Omitted	None	None
+GitignoreWithInclude	ExcludeOption	FileInCwd	PreserveOnRewrite	InWorkerReason
+ExcludeWithNestedInclude	NegatedFilePattern	NonProjectSubDir	LoadedWithReasons	PlanNullFallback
+GitignoreOnly	Both	GlobInCwd	None	IsolatedFlag
+None	None	ProjectSubDir	PreserveOnRewrite	None
+None	ExcludeOption	OutsideFile	None	None

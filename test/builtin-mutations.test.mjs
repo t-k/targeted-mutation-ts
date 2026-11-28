@@ -28,7 +28,12 @@ async function referenceMutants(file, input) {
 }
 
 // The StrykerJS instrumenter (a development dependency) is the reference for the mutation set.
-const normalize = text => text.replace(/\s+/g, '').replace(/[()]/g, '').replace(/['`]/g, '"').replace(/[;,]+(?=[\]}]|$)/g, '');
+const normalize = text => text
+  .replace(/Stryker was here!?/g, 'tmt-mutated')
+  .replace(/\s+/g, '')
+  .replace(/[()]/g, '')
+  .replace(/['`]/g, '"')
+  .replace(/[;,]+(?=[\]}]|$)/g, '');
 const key = mutant => [mutant.mutatorName, mutant.location.start, mutant.location.end,
   mutant.location.end - mutant.location.start > 40 && !['true', 'false'].includes(mutant.replacement) ? '' : normalize(mutant.replacement)].join('|');
 function tally(mutants) {
@@ -87,7 +92,7 @@ test('types, imports, enums, declarations, directives and property names are nev
     assert.equal(touched(untouched), 0, untouched);
   }
   assert.equal(mutations.filter(mutation => mutation.start === 0).length, 0);
-  assert.equal(source.slice(...mutations.find(mutation => mutation.name === 'StringLiteral' && mutation.replacement === '"Stryker was here!"').placement), "''");
+  assert.equal(source.slice(...mutations.find(mutation => mutation.name === 'StringLiteral' && mutation.replacement === '"tmt-mutated"').placement), "''");
 });
 
 test('a line selection keeps only mutations that lie completely inside it', () => {

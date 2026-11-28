@@ -5,7 +5,7 @@ import { dirname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { verdict } from './analysis.mjs';
 import { inParallel } from './in-parallel.mjs';
 import { rewrite } from './probe.mjs';
-import { canonicalPath, copyPathIsExcluded, inside, resolveCopyExclusions, runVitestAsync, withCopy } from './vitest.mjs';
+import { canonicalPath, copyPathIsExcluded, inside, resolveCopyExclusions, resolveCopyInclusions, runVitestAsync, withCopy } from './vitest.mjs';
 
 const TEST_FILE_RE = /\.(?:test|spec)\.(?:[cm]?[jt]s|[jt]sx)$/;
 const MAX_WEAKENED_TRIALS = 32;
@@ -75,7 +75,8 @@ export async function detectWeakenedTests(project, report, options = {}) {
   const root = canonicalPath(project);
   const { revision, files: rawOldTests } = changedTestFiles(root, options.since);
   const exclusions = resolveCopyExclusions(root, options['copy-exclude'] ?? []);
-  const oldTests = rawOldTests.filter(entry => !copyPathIsExcluded(root, resolve(root, entry.file), exclusions));
+  const inclusions = resolveCopyInclusions(root, options['copy-include'] ?? []);
+  const oldTests = rawOldTests.filter(entry => !copyPathIsExcluded(root, resolve(root, entry.file), exclusions, inclusions));
   if (!revision || !oldTests.length) return report;
 
   const survivors = (report.mutants ?? []).filter(isReplayableSurvivor).slice(0, MAX_WEAKENED_TRIALS);
@@ -127,7 +128,7 @@ export async function detectWeakenedTests(project, report, options = {}) {
       testFiles: options.test,
       ...(options.timeout ? { timeout: options.timeout * 1000 } : {}),
     });
-  }, { exclude: options['copy-exclude'] });
+  }, { exclude: options['copy-exclude'], include: options['copy-include'] });
 
   // Verify old tests compile and pass on the current production code before attributing weakened tests.
   const oldBaseline = await runWithOldTests(null);

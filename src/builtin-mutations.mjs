@@ -1150,7 +1150,7 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
   function literal(node) {
     if (ts.isNoSubstitutionTemplateLiteral(node) || ts.isTemplateExpression(node)) {
       const empty = ts.isNoSubstitutionTemplateLiteral(node) && node.end - begin(node) === 2;
-      add('StringLiteral', node, empty ? '`Stryker was here!`' : '``');
+      add('StringLiteral', node, empty ? '`tmt-mutated`' : '``');
       return;
     }
     const [parent] = up(node);
@@ -1158,7 +1158,7 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
       (ts.isIdentifier(parent.expression) && ['require', 'Symbol'].includes(parent.expression.text)));
     const named = parent.name === node || parent.propertyName === node || ts.isComputedPropertyName(parent) || ts.isJsxAttribute(parent) || ts.isExpressionStatement(parent) ||
       ts.isExternalModuleReference(parent) || ts.isModuleDeclaration(parent) || ts.isExportAssignment(parent);
-    if (!called && !named) add('StringLiteral', node, node.text.length ? '""' : '"Stryker was here!"');
+    if (!called && !named) add('StringLiteral', node, node.text.length ? '""' : '"tmt-mutated"');
     if (ts.isNewExpression(parent) && ts.isIdentifier(parent.expression) && parent.expression.text === 'RegExp' &&
         parent.arguments?.[0] === node) {
       const flags = parent.arguments[1] && ts.isStringLiteral(parent.arguments[1]) ? parent.arguments[1].text : undefined;
@@ -1258,7 +1258,7 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
     else if (targeted) unobservedEdits(node);
     if (ts.isExpression(node) && !ts.isParenthesizedExpression(node)) condition(node);
     if (ts.isArrayLiteralExpression(node) && !isAssignmentTarget(node)) {
-      add('ArrayDeclaration', node, node.elements.length ? '[]' : '["Stryker was here"]');
+      add('ArrayDeclaration', node, node.elements.length ? '[]' : '["tmt-mutated"]');
     } else if (ts.isObjectLiteralExpression(node) && node.properties.length && !isAssignmentTarget(node)) {
       add('ObjectLiteral', node, '{}');
     } else if (ts.isArrowFunction(node) && !ts.isBlock(node.body)) {

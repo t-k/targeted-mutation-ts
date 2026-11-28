@@ -76,7 +76,13 @@ export async function analyzeConventional(project, files, options) {
   const report = {
     schemaVersion: 1, runner: 'vitest', mutators: profile,
     extraction: [], mutants: [], diagnostics: [], evaluation: 'no_sites',
-    selection: { config: options.config, tests: options.test, copyExclude: options['copy-exclude'] },
+    selection: {
+      config: options.config,
+      tests: options.test,
+      copyExclude: options['copy-exclude'],
+      ...(options['copy-include']?.length ? { copyInclude: options['copy-include'] } : {}),
+      ...(options.exclude?.length ? { exclude: options.exclude } : {}),
+    },
   };
   // Shift switches belong to the session and not to the report.
   const shardKeys = options.shardKeys;
@@ -255,9 +261,9 @@ export async function analyzeConventional(project, files, options) {
       let baselineReported = false;
       let lastDone = -1;
       let lastStageKey = '';
-      const formatStageSuffix = (stage, trialTimeoutSeconds, elapsed) => {
+      const formatStageSuffix = (stage, stageReason, trialTimeoutSeconds, elapsed) => {
         const parts = [];
-        if (stage === 'isolated') parts.push('isolated fallback');
+        if (stage === 'isolated') parts.push(stageReason ? `isolated fallback: ${stageReason}` : 'isolated fallback');
         else if (stage === 'in-worker') parts.push('in-worker');
         else if (stage) parts.push(stage);
         if (typeof trialTimeoutSeconds === 'number' && trialTimeoutSeconds > 0) {
@@ -299,6 +305,7 @@ export async function analyzeConventional(project, files, options) {
           const recordedDone = current.filter(event => event.id !== undefined).length;
           let latestProgress = 0;
           let latestStage;
+          let latestStageReason;
           let latestTrialTimeoutSeconds;
           for (const event of current) {
             if (typeof event.progress?.completed === 'number' && event.progress.completed > latestProgress) {
@@ -306,21 +313,22 @@ export async function analyzeConventional(project, files, options) {
             }
             if (event.progress?.stage !== undefined) {
               latestStage = event.progress.stage;
+              latestStageReason = event.progress.reason ?? latestStageReason;
               latestTrialTimeoutSeconds = event.progress.trialTimeoutSeconds;
             }
           }
           const provisionalCap = Math.max(0, totalRunnable - 1);
           const done = Math.min(totalRunnable, Math.max(recordedDone, Math.min(latestProgress, provisionalCap)));
-          const stageKey = `${latestStage ?? ''}:${latestTrialTimeoutSeconds ?? ''}`;
+          const stageKey = `${latestStage ?? ''}:${latestStageReason ?? ''}:${latestTrialTimeoutSeconds ?? ''}`;
           if ((done > lastDone && done > 0) || (stageKey !== lastStageKey && latestStage === 'isolated')) {
             lastDone = Math.max(lastDone, done);
             lastStageKey = stageKey;
             lastReportAt = now;
-            options.onProgress(`Mutants: ${Math.max(0, done)}/${totalRunnable} completed${formatStageSuffix(latestStage, latestTrialTimeoutSeconds)}`);
+            options.onProgress(`Mutants: ${Math.max(0, done)}/${totalRunnable} completed${formatStageSuffix(latestStage, latestStageReason, latestTrialTimeoutSeconds)}`);
           } else if (!sessionComplete && now - lastReportAt >= progressIntervalMs) {
             lastReportAt = now;
             const elapsed = Math.max(1, Math.round((now - baselineDoneAt) / 1000));
-            options.onProgress(`Mutants: ${Math.max(0, done)}/${totalRunnable} completed${formatStageSuffix(latestStage, latestTrialTimeoutSeconds, elapsed)}`);
+            options.onProgress(`Mutants: ${Math.max(0, done)}/${totalRunnable} completed${formatStageSuffix(latestStage, latestStageReason, latestTrialTimeoutSeconds, elapsed)}`);
           }
         }
       };
@@ -380,6 +388,7 @@ export async function analyzeConventional(project, files, options) {
     };
   }, {
     exclude: options['copy-exclude'],
+    include: options['copy-include'],
     onProgress: options.onProgress,
     reuseCopy: options.reusableCopy,
     onBeforeCleanup: () => {

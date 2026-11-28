@@ -1158,7 +1158,7 @@ async function withWarmAssertionSession(root, subjectsByFile, options, action) {
       killGroup();
       await exited;
     }
-  }, { exclude: options['copy-exclude'] });
+  }, { exclude: options['copy-exclude'], include: options['copy-include'] });
 }
 
 export async function strengthenAssertions(root, report, options, run = defaultRun) {

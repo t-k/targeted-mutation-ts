@@ -63,6 +63,8 @@ export function computeCampaignContext(targets, options = {}, root = null) {
     ...(options['baseline-timeout'] !== undefined ? { baselineTimeout: options['baseline-timeout'] } : {}),
     ...(options['baseline-workers'] !== undefined ? { baselineWorkers: options['baseline-workers'] } : {}),
     copyExclude: options['copy-exclude'] ?? null,
+    ...(options['copy-include']?.length ? { copyInclude: options['copy-include'] } : {}),
+    ...(options.exclude?.length ? { exclude: options.exclude } : {}),
     isolatedTrials: !!options['isolated-trials'],
     ...(options['verify-trials'] ? { verifyTrials: options['verify-trials'] } : {}),
   }));
@@ -161,6 +163,7 @@ export function openCheckpoint(path, context, metadata = {}) {
       const sanitized = {
         status: outcome.status,
         ...(outcome.statusReason ? { statusReason: outcome.statusReason } : {}),
+        ...(outcome.fallback ? { fallback: outcome.fallback } : {}),
         ...(outcome.tests ? { tests: outcome.tests } : {}),
         ...(outcome.reachedTests?.length ? { reachedTests: outcome.reachedTests } : {}),
         ...(outcome.evidence ? { evidence: outcome.evidence } : {}),

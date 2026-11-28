@@ -128,7 +128,7 @@ export function verdict(run, baseline) {
   return run.status === 'passed' ? 'survived' : 'killed';
 }
 
-function makeAttempt(root, subjects, runner, copyExclude, probeChecks, settings = {}) {
+function makeAttempt(root, subjects, runner, copyExclude, probeChecks, settings = {}, copyInclude = []) {
   const { tracing = false, activate, trial, witness, coverageSites, synchronousTrace, collect, isBaseline = false } = settings;
   const attempt = withCopy(root, (workspace, temp) => {
     const trace = tracing ? resolve(temp, 'trace.jsonl') : undefined;
@@ -167,9 +167,9 @@ function makeAttempt(root, subjects, runner, copyExclude, probeChecks, settings 
     if (!tracing) return { ...result, witnessFile, witnessName: witness?.testName };
     const { rows, overlap } = inspectTrace(trace);
     return { ...result, trace: rows, overlap, synchronousTrace };
-  }, { exclude: copyExclude });
+  }, { exclude: copyExclude, include: copyInclude });
   if (attempt.overlap && !synchronousTrace && ['passed', 'failed'].includes(attempt.status)) {
-    return makeAttempt(root, subjects, runner, copyExclude, probeChecks, { ...settings, synchronousTrace: true });
+    return makeAttempt(root, subjects, runner, copyExclude, probeChecks, { ...settings, synchronousTrace: true }, copyInclude);
   }
   return attempt;
 }
@@ -196,7 +196,7 @@ export function sourceTrials(root, subjects, options) {
       })
       : (workspace, temp, settings) => runVitest(workspace, temp, {
         ...settings, config: options.config, testFiles: options.test, testProjects: options.testProjects, ...(options.timeout ? { timeout: options.timeout * 1000 } : {}) });
-  return settings => makeAttempt(root, subjects, runner, options['copy-exclude'], new Map(), settings);
+  return settings => makeAttempt(root, subjects, runner, options['copy-exclude'], new Map(), settings, options['copy-include']);
 }
 
 // Asynchronous plain-source runs, so independent witness checks, undo trials, and Node trials can run side by side.
@@ -222,7 +222,7 @@ export function sourceTrialsAsync(root, subjects, options) {
       return { ...result, collected: existsSync(path) ? readFileSync(path, 'utf8') : '' };
     }
     return result;
-  }, { exclude: options['copy-exclude'] });
+  }, { exclude: options['copy-exclude'], include: options['copy-include'] });
 }
 
 function indexObservations(trace, baseline) {
@@ -575,7 +575,7 @@ function analyzePlaywright(root, subjects, report, options, specification) {
     timeout: (settings?.isBaseline ? baselineTimeoutSeconds : (options.timeout ?? 60)) * 1000,
   });
   const probeChecks = new Map(subjects.map(subject => [subject, createProbePreloadCheck(subject.input)]));
-  const attempt = settings => makeAttempt(root, subjects, runner, options['copy-exclude'], probeChecks, settings);
+  const attempt = settings => makeAttempt(root, subjects, runner, options['copy-exclude'], probeChecks, settings, options['copy-include']);
   const baseline = attempt({ isBaseline: true });
   report.baseline = playwrightSummary(baseline);
   if (baseline.status !== 'passed') {
@@ -774,8 +774,14 @@ export async function analyzeNodeAsync(project, files, options) {
   const { subjects, extraction } = collectComparisons(root, files, options);
   const report = { schemaVersion: 1, runner: 'node', extraction, mutants: [], diagnostics: [], evaluation: 'no_sites' };
   if (['targeted', 'full'].includes(options.mutators)) report.mutators = options.mutators;
-  if (options.config !== undefined || options.test?.length || options['copy-exclude']?.length) {
-    report.selection = { config: options.config, tests: options.test, copyExclude: options['copy-exclude'] };
+  if (options.config !== undefined || options.test?.length || options['copy-exclude']?.length || options['copy-include']?.length || options.exclude?.length) {
+    report.selection = {
+      config: options.config,
+      tests: options.test,
+      copyExclude: options['copy-exclude'],
+      ...(options['copy-include']?.length ? { copyInclude: options['copy-include'] } : {}),
+      ...(options.exclude?.length ? { exclude: options.exclude } : {}),
+    };
   }
   if (!subjects.length) return report;
 
@@ -842,8 +848,14 @@ export function prepareAnalysis(project, files, options) {
   const { subjects, extraction } = collectComparisons(root, files, options);
   const report = { schemaVersion: 1, runner: options.runner ?? 'vitest', extraction, mutants: [], diagnostics: [], evaluation: 'no_sites' };
   if (['targeted', 'full'].includes(options.mutators)) report.mutators = options.mutators;
-  if (options.config !== undefined || options.test?.length || options['copy-exclude']?.length) {
-    report.selection = { config: options.config, tests: options.test, copyExclude: options['copy-exclude'] };
+  if (options.config !== undefined || options.test?.length || options['copy-exclude']?.length || options['copy-include']?.length || options.exclude?.length) {
+    report.selection = {
+      config: options.config,
+      tests: options.test,
+      copyExclude: options['copy-exclude'],
+      ...(options['copy-include']?.length ? { copyInclude: options['copy-include'] } : {}),
+      ...(options.exclude?.length ? { exclude: options.exclude } : {}),
+    };
   }
   if (!subjects.length) return { report };
 
@@ -862,7 +874,7 @@ export function prepareAnalysis(project, files, options) {
     ...(settings?.isBaseline && baselineWorkers > 1 ? { workers: baselineWorkers } : {}),
   });
   const probeChecks = new Map(subjects.map(subject => [subject, createProbePreloadCheck(subject.input)]));
-  const attempt = settings => makeAttempt(root, subjects, runner, options['copy-exclude'], probeChecks, settings);
+  const attempt = settings => makeAttempt(root, subjects, runner, options['copy-exclude'], probeChecks, settings, options['copy-include']);
   // Beside a session, which runs the suite on its own, the recording run stands for the baseline when it passes.
   // Otherwise the plain baseline runs first, so a failing suite is reported as before.
   const recorded = options.traceIsBaseline ? attempt({ tracing: true, isBaseline: true }) : null;
@@ -920,8 +932,14 @@ export function prepareAnalysisFromTrace(project, files, options, recordedBaseli
     diagnostics: [],
     evaluation: 'no_sites',
   };
-  if (options.config !== undefined || options.test?.length || options['copy-exclude']?.length) {
-    report.selection = { config: options.config, tests: options.test, copyExclude: options['copy-exclude'] };
+  if (options.config !== undefined || options.test?.length || options['copy-exclude']?.length || options['copy-include']?.length || options.exclude?.length) {
+    report.selection = {
+      config: options.config,
+      tests: options.test,
+      copyExclude: options['copy-exclude'],
+      ...(options['copy-include']?.length ? { copyInclude: options['copy-include'] } : {}),
+      ...(options.exclude?.length ? { exclude: options.exclude } : {}),
+    };
   }
   const baseline = recordedBaseline.baseline;
   report.baseline = { status: 'passed', tests: baseline.tests.length };
@@ -1028,6 +1046,7 @@ export function completeAnalysis({ root, report, options, attempt, baseline, tra
         if (reason) result.statusReason = reason;
         if (actual === 'killed') result.tests = known ? known.tests : source.tests.filter(test => test.status === 'failed').map(testcase);
         if (known?.reachedTests?.length) result.reachedTests = known.reachedTests;
+        if (known?.fallback) result.fallback = known.fallback;
       }
 
       if (options.audit) {

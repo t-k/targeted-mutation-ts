@@ -404,8 +404,14 @@ export async function analyzePlaywrightSession(project, files, options) {
     mutants: [],
     diagnostics: [],
     evaluation: 'no_sites',
-    ...(options.config !== undefined || options.test?.length || options['copy-exclude']?.length ? {
-      selection: { config: options.config, tests: options.test, copyExclude: options['copy-exclude'] },
+    ...(options.config !== undefined || options.test?.length || options['copy-exclude']?.length || options['copy-include']?.length || options.exclude?.length ? {
+      selection: {
+        config: options.config,
+        tests: options.test,
+        copyExclude: options['copy-exclude'],
+        ...(options['copy-include']?.length ? { copyInclude: options['copy-include'] } : {}),
+        ...(options.exclude?.length ? { exclude: options.exclude } : {}),
+      },
     } : {}),
   };
 
@@ -659,5 +665,5 @@ export async function analyzePlaywrightSession(project, files, options) {
       mutants: judged.map(({ targeted: _rule, fullDiagnostic: _fd, effects: _effects, _cachedDiagnostic: _cd, ...mutant }) => mutant),
       diagnostics,
     };
-  }, { exclude: options['copy-exclude'], onProgress: options.onProgress });
+  }, { exclude: options['copy-exclude'], include: options['copy-include'], onProgress: options.onProgress });
 }

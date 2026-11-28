@@ -131,7 +131,13 @@ export function listCandidates(project, files, options = {}) {
     mutants: selected,
     diagnostics: [],
     evaluation: selected.length ? 'listed' : 'no_sites',
-    selection: { config: options.config, tests: options.test, copyExclude: options['copy-exclude'] },
+    selection: {
+      config: options.config,
+      tests: options.test,
+      copyExclude: options['copy-exclude'],
+      ...(options['copy-include']?.length ? { copyInclude: options['copy-include'] } : {}),
+      ...(options.exclude?.length ? { exclude: options.exclude } : {}),
+    },
     ...(meta ? { shard: meta } : {}),
   };
 }

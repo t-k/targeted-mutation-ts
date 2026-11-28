@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { loadTypeScript } from './typescript-compiler.mjs';
 
 const BASELINE_VERSION = 2;
@@ -111,7 +111,7 @@ export function annotateFindingIds(diagnostics) {
   });
 }
 
-export function serializeBaseline(diagnostics) {
+export function serializeBaseline(diagnostics, existingReasons = new Map()) {
   const annotated = annotateFindingIds(diagnostics);
   return {
     version: BASELINE_VERSION,
@@ -121,11 +121,12 @@ export function serializeBaseline(diagnostics) {
       file: normalizePosixPath(item.location?.file),
       rule: item.rule ?? item.mutations?.[0]?.rule ?? undefined,
       code: normalizeCodeSnippet(item),
+      reason: existingReasons.get(item.findingId) ?? '',
     })),
   };
 }
 
-export function parseBaseline(text, label = 'baseline') {
+export function parseBaselineWithReasons(text, label = 'baseline') {
   let data;
   try {
     data = JSON.parse(text);
@@ -136,42 +137,76 @@ export function parseBaseline(text, label = 'baseline') {
     if (!data.every(entry => typeof entry === 'string')) {
       throw new Error(`Invalid legacy baseline array in ${label}`);
     }
-    return new Set(data);
+    return { ids: new Set(data), reasons: new Map() };
   }
   if (!data || typeof data !== 'object' || data.version !== BASELINE_VERSION || !Array.isArray(data.findings)) {
     throw new Error(`Unsupported baseline format in ${label}: expected version ${BASELINE_VERSION}`);
   }
   const ids = new Set();
+  const reasons = new Map();
   for (const entry of data.findings) {
     const id = typeof entry === 'string' ? entry : entry?.id;
     if (typeof id !== 'string' || !id.length) {
       throw new Error(`Invalid baseline entry in ${label}`);
     }
+    if (entry && typeof entry === 'object' && entry.reason !== undefined) {
+      if (typeof entry.reason !== 'string') {
+        throw new Error(`Invalid baseline entry in ${label}: reason must be a string`);
+      }
+      if (entry.reason.trim().length > 0) {
+        reasons.set(id, entry.reason);
+      }
+    }
     ids.add(id);
   }
-  return ids;
+  return { ids, reasons };
+}
+
+export function parseBaseline(text, label = 'baseline') {
+  return parseBaselineWithReasons(text, label).ids;
 }
 
 export function loadBaseline(path) {
   return parseBaseline(readFileSync(path, 'utf8'), path);
 }
 
+export function loadBaselineWithReasons(path) {
+  return parseBaselineWithReasons(readFileSync(path, 'utf8'), path);
+}
+
 export function writeBaseline(path, diagnostics) {
-  const payload = serializeBaseline(diagnostics);
+  let existingReasons = new Map();
+  if (existsSync(path)) {
+    const raw = readFileSync(path, 'utf8');
+    if (raw.trim().length > 0) {
+      existingReasons = parseBaselineWithReasons(raw, path).reasons;
+    }
+  }
+  const payload = serializeBaseline(diagnostics, existingReasons);
   writeFileSync(path, JSON.stringify(payload, null, 2) + '\n', 'utf8');
   return payload;
 }
 
-export function applyBaseline(report, baselineIds) {
+export function applyBaseline(report, baseline) {
   const annotated = annotateFindingIds(report.diagnostics ?? []);
+  const baselineIds = baseline instanceof Set ? baseline : baseline?.ids;
+  const baselineReasons = baseline instanceof Set ? null : baseline?.reasons;
   if (!baselineIds || !baselineIds.size) {
     return { ...report, diagnostics: annotated };
   }
   const kept = [];
   const suppressedIds = [];
+  const suppressedReasons = {};
   for (const diagnostic of annotated) {
-    if (baselineIds.has(diagnostic.findingId)) suppressedIds.push(diagnostic.findingId);
-    else kept.push(diagnostic);
+    if (baselineIds.has(diagnostic.findingId)) {
+      suppressedIds.push(diagnostic.findingId);
+      const reason = baselineReasons?.get?.(diagnostic.findingId);
+      if (typeof reason === 'string' && reason.trim().length > 0) {
+        suppressedReasons[diagnostic.findingId] = reason;
+      }
+    } else {
+      kept.push(diagnostic);
+    }
   }
   return {
     ...report,
@@ -179,6 +214,7 @@ export function applyBaseline(report, baselineIds) {
     suppressed: {
       baseline: suppressedIds.length,
       ids: suppressedIds,
+      ...(Object.keys(suppressedReasons).length ? { reasons: suppressedReasons } : {}),
     },
   };
 }

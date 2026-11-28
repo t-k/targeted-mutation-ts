@@ -359,7 +359,7 @@ function prepareUndoPlan(project, files, options) {
   const subjects = [];
   const trials = [];
   const fileHunks = new Map();
-  for (const { file, selected } of selectScope(root, files, { lines: options.lines, 'copy-exclude': options['copy-exclude'] })) {
+  for (const { file, selected } of selectScope(root, files, { lines: options.lines, 'copy-exclude': options['copy-exclude'], 'copy-include': options['copy-include'], exclude: options.exclude })) {
     if (!changed.has(file)) continue;
     const pathspec = sep === '/' ? file : file.replaceAll(sep, '/');
     let old;

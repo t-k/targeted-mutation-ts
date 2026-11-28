@@ -54,7 +54,7 @@ function runAttempt(root, options, snapshots, edits = [], append, capture = fals
       }
     }
     return result;
-  }, { exclude: options['copy-exclude'] });
+  }, { exclude: options['copy-exclude'], include: options['copy-include'] });
 }
 
 export function isExpectedFailure(run, baseline, target, original, alternate, marker) {
@@ -158,8 +158,14 @@ export async function analyzeWitnesses(project, files, options) {
   const witnessSearch = { candidates: candidates.length, matched: 0, unmatched: candidates.length ? null : 0, evaluated: 0, omitted: 0 };
   const report = { schemaVersion: 1, runner: 'vitest', profile: 'witnesses', extraction, witnessSearch,
     mutants: [], diagnostics: [], evaluation: 'no_sites' };
-  if (options.config || options.test?.length || options['copy-exclude']?.length) {
-    report.selection = { config: options.config, tests: options.test, copyExclude: options['copy-exclude'] };
+  if (options.config || options.test?.length || options['copy-exclude']?.length || options['copy-include']?.length || options.exclude?.length) {
+    report.selection = {
+      config: options.config,
+      tests: options.test,
+      copyExclude: options['copy-exclude'],
+      ...(options['copy-include']?.length ? { copyInclude: options['copy-include'] } : {}),
+      ...(options.exclude?.length ? { exclude: options.exclude } : {}),
+    };
   }
   const selection = new Map(selectedFiles.map(({ file, selected }) => [file, selected]));
   const plans = Object.hasOwn(specification, 'witnessPlans') ? prepareContracts(specification, selection, snapshots) : [];

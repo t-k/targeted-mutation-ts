@@ -649,12 +649,15 @@ async function runSession() {
 
   let serverRestarts = 0;
   const MAX_SERVER_RESTARTS = 4;
-  const totals = { inWorker: 0, isolated: 0, sampled: 0, mismatches: [] };
+  const totals = { inWorker: 0, isolated: 0, sampled: 0, mismatches: [], fallbackReasons: Object.create(null) };
 
   // Run an isolated trial with a freshly booted webServer (activating the mutant BEFORE webServer boot so
   // `serverStatic` bindings evaluate with the mutant active) and full worker preload + inventory verification.
   const runIsolatedTrial = async (mutant, plan, fallbackReason) => {
     totals.isolated++;
+    if (fallbackReason) {
+      totals.fallbackReasons[fallbackReason] = (totals.fallbackReasons[fallbackReason] ?? 0) + 1;
+    }
     const activeId = mutant.active ?? mutant.id;
     const stopped = await stopManagedServer();
     if (!stopped) {
@@ -823,7 +826,7 @@ async function runSession() {
       }
     } else {
       for (const item of items) {
-        fallbackQueue.push({ ...item, reason: isolatedTrials ? undefined : 'worker-stopped' });
+        fallbackQueue.push({ ...item, reason: isolatedTrials ? 'isolated-trials' : 'worker-stopped' });
       }
     }
 
@@ -874,11 +877,13 @@ async function runSession() {
     }
   }
 
+  const fallbackReasons = Object.keys(totals.fallbackReasons).length ? { ...totals.fallbackReasons } : undefined;
   record({
     trials: {
       workers: 1,
       inWorker: totals.inWorker,
       isolated: totals.isolated,
+      ...(fallbackReasons ? { fallbackReasons } : {}),
       ...(verifyTrials ? { verified: { sampled: totals.sampled, mismatches: totals.mismatches } } : {}),
     },
   });

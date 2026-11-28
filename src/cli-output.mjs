@@ -2,11 +2,16 @@ export const usage = `Usage: targeted-mutation <command> [options]   (alias: tmt
 
 Commands:
   analyze [PROJECT] [FILE...]   Run the project's tests against targeted source edits and report test gaps.
-                                FILE may be a file, directory, or quoted glob (e.g. 'src/**/*.ts').
+                                FILE may be a file, directory, quoted glob (e.g. 'src/**/*.ts'), or negated
+                                pattern (e.g. '!src/**/sample.ts'). If the first argument is a file, glob,
+                                or non-project subdirectory inside ".", PROJECT defaults to ".".
   extract FILE                  Print the comparison candidates found in one source file as JSON.
   prototype PROJECT FILE        Run the original threshold experiment on one file.
 
 Scope (analyze):
+  --exclude PATTERN             Exclude source files, directories, or globs from mutation (files remain in
+                                temporary copies so tests can import them). Repeatable.
+                                Also configurable via "exclude" in targeted-mutation.config.json or "!PATTERN" in files.
   --lines FILE:FROM-TO          Limit to a line range. FILE:N selects one line. Repeatable.
   --since REV                   Limit to lines added or changed since a Git revision.
   --suggest-assertions          For a survivor whose tests had the input: run the calls those tests make
@@ -15,6 +20,9 @@ Scope (analyze):
                                 A change the tests pass without is reported as UNTESTED CHANGE.
   --copy-exclude PATH           Leave a project path out of the temporary copies (warns and skips if missing). Repeatable.
                                 Also configurable via "copyExclude" in targeted-mutation.config.json.
+  --copy-include PATH           Keep a project path in temporary copies even if excluded by --copy-exclude or
+                                --copy-exclude-gitignore (warns and skips if missing). Repeatable.
+                                Also configurable via "copyInclude" in targeted-mutation.config.json.
   --copy-exclude-gitignore      Also exclude gitignored paths (except node_modules) from temporary copies.
                                 Also configurable via "copyExcludeGitignore": true in targeted-mutation.config.json.
   --no-copy-exclude-gitignore   Disable gitignore copy exclusion even when enabled in project configuration.
@@ -326,6 +334,9 @@ function describeBaseline(baseline = {}) {
     if (outputLines.length) {
       lines.push(...outputLines.slice(-20).map(line => `  ${line}`));
     }
+  }
+  for (const hint of baseline.hints ?? []) {
+    lines.push(`  Hint: ${printable(hint)}`);
   }
   return lines;
 }

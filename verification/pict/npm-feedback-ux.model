@@ -1,0 +1,5 @@
+CopyFilter: None, GitignoreOnly, GitignoreWithInclude, ExcludeWithNestedInclude
+TargetExclude: None, ExcludeOption, NegatedFilePattern, Both
+PositionalRoot: Omitted, DotDir, ProjectSubDir, FileInCwd, NonProjectSubDir, GlobInCwd, OutsideFile
+BaselineReason: None, PreserveOnRewrite, LoadedWithReasons
+FallbackReason: None, InWorkerReason, PlanNullFallback, IsolatedFlag

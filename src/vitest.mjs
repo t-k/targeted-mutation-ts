@@ -57,23 +57,26 @@ export function inside(root, path) {
 
 const normalizeExclusionKey = value => (process.platform === 'win32' ? value.toLowerCase() : value);
 
-export function resolveCopyExclusions(rawSource, exclude = [], { onMissing } = {}) {
+function resolveCopyPaths(rawSource, paths = [], { onMissing, label = 'Copy exclusion', rejectBuiltIns = false } = {}) {
   const source = canonicalPath(rawSource);
   const resolved = [];
   const seenResolved = new Set();
   const seenMissing = new Set();
   const caseInsensitive = process.platform === 'win32' || process.platform === 'darwin';
-  for (const path of exclude) {
+  for (const path of paths) {
     const candidate = resolve(source, path);
     const fromRoot = relative(source, candidate);
     if (!fromRoot || isAbsolute(path) || isAbsolute(fromRoot) || fromRoot === '..' || fromRoot.startsWith('..' + sep)) {
-      throw new Error(`Copy exclusion must be inside the project: ${path}`);
+      throw new Error(`${label} must be inside the project: ${path}`);
     }
     const components = fromRoot.split(sep);
     const dependency = components.findIndex(part => (caseInsensitive ? part.toLowerCase() : part) === 'node_modules');
-    if (dependency === 0) throw new Error(`Copy exclusion cannot target node_modules: ${path}`);
+    if (dependency === 0) throw new Error(`${label} cannot target node_modules: ${path}`);
     if (dependency > 0 && dependency !== components.length - 1) {
-      throw new Error(`Copy exclusion cannot target node_modules contents: ${path}`);
+      throw new Error(`${label} cannot target node_modules contents: ${path}`);
+    }
+    if (rejectBuiltIns && components.some(part => excluded.has(part))) {
+      throw new Error(`${label} cannot target reserved directory: ${path}`);
     }
     let cursor = source;
     let parentMissing = false;
@@ -85,7 +88,7 @@ export function resolveCopyExclusions(rawSource, exclude = [], { onMissing } = {
         break;
       }
       if (stat.isSymbolicLink() || normalizeExclusionKey(canonicalPath(cursor)) !== normalizeExclusionKey(cursor)) {
-        throw new Error(`Copy exclusion must not traverse a symbolic link: ${path}`);
+        throw new Error(`${label} must not traverse a symbolic link: ${path}`);
       }
       if (!stat.isDirectory()) {
         parentMissing = true;
@@ -108,13 +111,30 @@ export function resolveCopyExclusions(rawSource, exclude = [], { onMissing } = {
   return resolved;
 }
 
-export function copyPathIsExcluded(source, path, exclusions) {
+export function resolveCopyExclusions(rawSource, exclude = [], { onMissing } = {}) {
+  return resolveCopyPaths(rawSource, exclude, { onMissing, label: 'Copy exclusion', rejectBuiltIns: false });
+}
+
+export function resolveCopyInclusions(rawSource, include = [], { onMissing } = {}) {
+  return resolveCopyPaths(rawSource, include, { onMissing, label: 'Copy inclusion', rejectBuiltIns: true });
+}
+
+export function copyPathIsExcluded(source, path, exclusions, inclusions = []) {
+  if (relative(source, path).split(sep).some(part => excluded.has(part))) return true;
   const normalizedPath = normalizeExclusionKey(path);
-  return relative(source, path).split(sep).some(part => excluded.has(part)) ||
-    exclusions.some(exclusion => {
-      const normalizedExclusion = normalizeExclusionKey(exclusion);
-      return normalizedPath === normalizedExclusion || normalizedPath.startsWith(normalizedExclusion + sep);
+  if (inclusions.length) {
+    const keptByInclude = inclusions.some(inclusion => {
+      const normalizedInclusion = normalizeExclusionKey(inclusion);
+      return normalizedPath === normalizedInclusion ||
+        normalizedPath.startsWith(normalizedInclusion + sep) ||
+        normalizedInclusion.startsWith(normalizedPath + sep);
     });
+    if (keptByInclude) return false;
+  }
+  return exclusions.some(exclusion => {
+    const normalizedExclusion = normalizeExclusionKey(exclusion);
+    return normalizedPath === normalizedExclusion || normalizedPath.startsWith(normalizedExclusion + sep);
+  });
 }
 
 function collectModuleEntries(modulesDir, mergedDirectories) {
@@ -358,6 +378,7 @@ function findAncestorModulesList(source) {
 
 export function createCopy(project, {
   exclude = [],
+  include = [],
   onProgress,
   onLargeCopy,
   largeCopyBytes = DEFAULT_LARGE_COPY_BYTES,
@@ -365,6 +386,7 @@ export function createCopy(project, {
 } = {}) {
   const source = canonicalPath(project);
   const exclusions = resolveCopyExclusions(source, exclude);
+  const inclusions = resolveCopyInclusions(source, include);
   const temp = canonicalPath(mkdtempSync(resolve(tmpdir(), 'tmt-')));
   registerActiveCopy(temp);
   let removed = false;
@@ -405,9 +427,9 @@ export function createCopy(project, {
       mode: constants.COPYFILE_FICLONE,
       filter(path) {
         if (path !== source && basename(path) === 'node_modules' && !exclusions.includes(path) &&
-            !copyPathIsExcluded(source, dirname(path), exclusions) &&
+            !copyPathIsExcluded(source, dirname(path), exclusions, inclusions) &&
             statSync(path, { throwIfNoEntry: false })?.isDirectory()) moduleTrees.push(path);
-        const keep = !copyPathIsExcluded(source, path, exclusions);
+        const keep = !copyPathIsExcluded(source, path, exclusions, inclusions);
         if (keep && path !== source) {
           const st = lstatSync(path, { throwIfNoEntry: false });
           if (st?.isFile()) {
@@ -467,6 +489,7 @@ export function createCopy(project, {
 export function withCopy(project, action, {
   reuseCopy,
   exclude = [],
+  include = [],
   onProgress,
   onLargeCopy,
   onBeforeCleanup,
@@ -475,7 +498,7 @@ export function withCopy(project, action, {
 } = {}) {
   const copy = reuseCopy?.claim?.()
     ? reuseCopy
-    : createCopy(project, { exclude, onProgress, onLargeCopy, largeCopyBytes, largeCopyFiles });
+    : createCopy(project, { exclude, include, onProgress, onLargeCopy, largeCopyBytes, largeCopyFiles });
   if (typeof onBeforeCleanup === 'function') {
     setActiveCopyCleanupHook(copy.temp, () => onBeforeCleanup(copy.root, copy.temp));
   }
@@ -739,7 +762,7 @@ function vitestOutcome(root, { report, testsToRun, product, timeout = 60_000 }, 
   return { status, tests, output: result.stderr + result.stdout };
 }
 
-export async function resolveRelatedVitestSpecs(project, targetFiles = [], { config, copyExclude = [], timeout = 60_000, onProgress, onLargeCopy, copy } = {}) {
+export async function resolveRelatedVitestSpecs(project, targetFiles = [], { config, copyExclude = [], copyInclude = [], timeout = 60_000, onProgress, onLargeCopy, copy } = {}) {
   const root = canonicalPath(project);
   const relTargets = [...new Set(targetFiles.map(file => relative(root, inside(root, file))))];
   if (!relTargets.length) return { tests: [], specs: [] };
@@ -826,7 +849,7 @@ export async function resolveRelatedVitestSpecs(project, targetFiles = [], { con
       copy.endUse();
     }
   }
-  return withCopy(root, resolveInWorkspace, { exclude: copyExclude, onProgress, onLargeCopy });
+  return withCopy(root, resolveInWorkspace, { exclude: copyExclude, include: copyInclude, onProgress, onLargeCopy });
 }
 
 export async function resolveRelatedVitestTests(project, targetFiles = [], options = {}) {

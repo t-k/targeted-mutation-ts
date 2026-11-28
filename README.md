@@ -69,8 +69,8 @@ npm install --save-dev targeted-mutation
 
 Requirements:
 
-- Node.js 22.18 or later in the 22 line, or 24.11 or later.
-- [Vitest](https://vitest.dev/), [Playwright](https://playwright.dev/), or Node's built-in `node:test` runner (`--runner node`, requires no extra test runner package). Releases are tested with Vitest 4 and 5, Playwright 1.65, and `node:test` on Node 22 and 24.
+- Node.js 22.18 or later in the 22 line, or 24.11 or later (including Node.js 26 LTS).
+- [Vitest](https://vitest.dev/), [Playwright](https://playwright.dev/), or Node's built-in `node:test` runner (`--runner node`, requires no extra test runner package). Releases are tested with Vitest 4 and 5, Playwright 1.65, and `node:test` on Node 22, 24, and 26.
 - Any platform supported by Node.js, including macOS, Linux (glibc and musl/Alpine), and Windows. On macOS (arm64, x64), Linux with glibc (arm64, x64), and Windows (x64), npm installs the matching prebuilt binary package automatically as an accelerator for extraction and Lean-checked replay. On other platforms, `analyze` and `extract` fall back automatically to the bundled TypeScript parser and JavaScript threshold evaluator.
 
 The tool copies the project to a temporary directory and runs the project's own test code and configuration there. Run it only on code you trust, as you would run the test suite.
@@ -79,7 +79,7 @@ The tool copies the project to a temporary directory and runs the project's own 
 
 ```sh
 npx targeted-mutation analyze                      # every source file in the current project (default: targeted)
-npx targeted-mutation analyze . src/cart.ts        # selected files or directories (e.g. . src or . 'src/**/*.ts')
+npx targeted-mutation analyze src/cart.ts          # selected files, directories, globs, or '!pattern' exclusions (PROJECT defaults to '.')
 npx targeted-mutation analyze --lines src/cart.ts:10-40
 npx targeted-mutation analyze --since origin/main  # edits on lines changed since a revision (also flags weakened tests)
 npx targeted-mutation analyze --since origin/main --undo-changes  # also: which changes do the tests pass without?

@@ -153,10 +153,10 @@ describe('baseline v2 stable IDs and suppression', () => {
     const edits = { mutations: [{ rule: 'first', replacement: 'a' }, { replacement: 'b' }] };
     const findings = serializeBaseline([windows, original, edits, {}]).findings;
     assert.deepEqual(findings, [
-      { id: findingId(posix), kind: diagA.kind, file: 'src/lib/cart.ts', rule: diagA.rule, code: 'count ?? 10' },
-      { id: findingId(original), kind: 'GAP', file: '', rule: 'arithmetic-swap/v1', code: 'a * b' },
-      { id: findingId(edits), kind: 'GAP', file: '', rule: 'first', code: 'first:a|:b' },
-      { id: findingId({}), kind: 'GAP', file: '', rule: undefined, code: '' },
+      { id: findingId(posix), kind: diagA.kind, file: 'src/lib/cart.ts', rule: diagA.rule, code: 'count ?? 10', reason: '' },
+      { id: findingId(original), kind: 'GAP', file: '', rule: 'arithmetic-swap/v1', code: 'a * b', reason: '' },
+      { id: findingId(edits), kind: 'GAP', file: '', rule: 'first', code: 'first:a|:b', reason: '' },
+      { id: findingId({}), kind: 'GAP', file: '', rule: undefined, code: '', reason: '' },
     ]);
   });
 
