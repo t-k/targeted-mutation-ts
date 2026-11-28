@@ -247,6 +247,14 @@ daemon.once('exit', code => {
 });
 
 try {
+  // Wait for the external daemon to accept connections before exposing Vite to Playwright's webServer readiness check.
+  for (let i = 0; i < 100; i++) {
+    try {
+      const res = await fetch(`http://127.0.0.1:${apiPort}/health`);
+      if (res.ok) break;
+    } catch {}
+    await new Promise(r => setTimeout(r, 100));
+  }
   vite = await createServer({
     server: {
       host: '127.0.0.1',

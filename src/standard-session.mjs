@@ -141,7 +141,8 @@ async function disposeLane(lane) {
   if (!lane) return true;
   const idx = lanes.indexOf(lane);
   if (idx !== -1) lanes.splice(idx, 1);
-  await Promise.resolve().then(() => lane.context?.cancelCurrentRun?.('timeout')).catch(() => {});
+  // Trigger cancellation without blocking on an unsettled cancel promise; enforce one shared deadline across close().
+  Promise.resolve().then(() => lane.context?.cancelCurrentRun?.('timeout')).catch(() => {});
   let closed = false;
   await Promise.race([
     Promise.resolve().then(() => lane.context?.close?.()).then(() => { closed = true; }, () => { closed = false; }),
@@ -339,6 +340,7 @@ try {
     let fresh;
     let hadRunnerError = false;
     let lastRunnerError = null;
+    let abortSession = false;
     const totals = { inWorker: 0, isolated: 0, sampled: 0, mismatches: [], inWorkerUsed: false };
     // Decides a list of reached trials: inside workers where that holds, in fresh runs for the rest.
     // What a surviving edit changed in the code its tests run, with the tests by name.
@@ -483,7 +485,6 @@ try {
         // so these runs take the files one by one.
         let assessed;
         let changed = {};
-        let abortAfterThis = false;
         try {
           fresh ??= (beside === oneByOne && lanes[0]) ? lanes[0] : await openLane(`fresh-${++freshLaneSeq}`, true).then(lane => (lanes.push(lane), lane));
           const selected = chooseTests(fresh.specs, tests, plan);
@@ -496,10 +497,14 @@ try {
             if (!trial.disposed) {
               hadRunnerError = true;
               lastRunnerError = 'Timed-out Vitest lane did not close cleanly before recovery';
-              abortAfterThis = true;
+              abortSession = true;
             }
           } else {
             assessed = assessTrial(trial, expected, hitLimit);
+            if (assessed.status === 'error') {
+              hadRunnerError = true;
+              lastRunnerError ??= assessed.statusReason ?? 'Vitest fresh trial error';
+            }
             if (mutant.effects && assessed.status === 'survived') {
               changed = { effects: effectsOf(reachOfRecords(trial.records, expected.keys())) };
             }
@@ -510,19 +515,19 @@ try {
           hadRunnerError = true;
           lastRunnerError = String(trialError?.message ?? trialError);
           assessed = { status: 'error', statusReason: lastRunnerError };
-          if (!disposed) abortAfterThis = true;
+          if (!disposed) abortSession = true;
         }
         if (sampled.has(id) && assessed.status !== settled.get(id).status) totals.mismatches.push({ id, worker: settled.get(id).status, fresh: assessed.status });
         report(mutant, { ...assessed, ...changed, ...(reasons.has(id) ? { fallback: reasons.get(id) } : {}) });
         freshDone++;
-        if (abortAfterThis) break;
+        if (abortSession) break;
       }
       totals.inWorker += settled.size;
       totals.sampled += sampled.size;
       totals.inWorkerUsed ||= plans !== null;
     };
     await decide(pending, (mutant, result) => record({ id: mutant.id, ...result }), true);
-    if (awaitsExtras) {
+    if (awaitsExtras && !abortSession) {
       // Threshold edits of the focused analysis: each names a comparison and how far its right side moves.
       const extras = [];
       for (const [index, extra] of (await extrasFromParent()).entries()) {
