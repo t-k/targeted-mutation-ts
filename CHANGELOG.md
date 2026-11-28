@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.9.1
+
+- Recover cleanly from Vitest fresh trial timeouts without aborting the remaining mutation campaign:
+  - Dispose the timed-out fresh Vitest lane (bounding cancellation and close within one shared deadline, using unique per-trial coverage destinations, and cleaning up completed trial files) and continue remaining queued mutants and threshold extras in a new lane, while aborting cleanly as `incomplete` if a timed-out lane cannot close or a fresh trial hits a runner error.
+  - Persist all completed in-worker warm results before starting fresh fallback trials so interrupted campaigns can resume from `--checkpoint` without re-evaluating settled mutants.
+  - Surface the active execution stage (`in-worker`, `isolated fallback`) and trial deadline seconds in `--progress` updates.
+  - Store structured session failure details (`sessionFailure` with concise `reason`, `exitCode`/`signal`, and a bounded tail excerpt of `stderr`) once on incomplete Vitest and Playwright reports instead of duplicating large shared `stderr` logs on every `unevaluated` mutant row, and print a single `Session failure:` line in text output.
+- Report reaching Playwright tests on runtime-switch trials:
+  - Attach `reachedTests` (`{ id, project, file, name }[]`, restricted to tests with per-test baseline reachability evidence) to scheduled Playwright runtime-switch trials while keeping `tests` strictly for killing tests and omitting `reachedTests` on `unreached` edits, persisting `reachedTests` in checkpoints and rendering a compact `(reached by: ...)` hint in text output for survivors without a specialized gap diagnostic.
+- Document Playwright mutation setups for external daemons with embedded UI bundles in `docs/analysis.md` (covering stale/prebuilt asset detection, report fields to verify, and a minimal loopback Vite proxy + backend readiness/cleanup wrapper) and display a prebuilt-assets hint in text output when every selected Playwright edit is `unreached`.
+
 ## 0.9.0
 
 - Add first-class targeted mutation testing for Playwright E2E suites (`--runner playwright` without `--audit`, `operatorExecution: "session"`):
