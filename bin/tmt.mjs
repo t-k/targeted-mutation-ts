@@ -47,10 +47,12 @@ try {
       verbose: { type: 'boolean' },
       'only-gaps': { type: 'boolean' },
       'fail-on-gaps': { type: 'boolean' },
+      'require-exercised': { type: 'boolean' },
       'json-out': { type: 'string' },
       'sarif-out': { type: 'string' },
       baseline: { type: 'string' },
       'write-baseline': { type: 'string' },
+      'replace-baseline': { type: 'boolean' },
       list: { type: 'boolean' },
       shard: { type: 'string' },
       sharding: { type: 'string' },
@@ -141,8 +143,13 @@ try {
       if (!/^[1-9]\d{0,3}$/.test(runValues.concurrency)) throw new Error('Expected --concurrency to be a positive integer');
       runValues.concurrency = Number(runValues.concurrency);
     }
+    if (runValues['replace-baseline'] && !runValues['write-baseline']) {
+      throw new Error('--replace-baseline requires --write-baseline');
+    }
     if (runValues['exclude-rule']?.length) {
-      runValues['exclude-rule'] = runValues['exclude-rule'].flatMap(entry => entry.split(',')).map(s => s.trim()).filter(Boolean);
+      const { validateExcludeRules } = await import('../src/builtin-mutations.mjs');
+      const rawRules = runValues['exclude-rule'].flatMap(entry => entry.split(',')).map(s => s.trim()).filter(Boolean);
+      runValues['exclude-rule'] = validateExcludeRules(rawRules);
     }
     const format = chooseFormat(runValues.format, process.stdout.isTTY === true);
     const canonicalOutputKeys = filePath => {
@@ -165,12 +172,29 @@ try {
       return keys;
     };
     const seenOutputs = new Map();
+    const PROTECTED_OUTPUT_NAME_RE = /^(?:package\.json|package-lock\.json|tsconfig(?:\.[^.]+)?\.json|targeted-mutation\.config\.(?:json|mjs)|(?:vite|vitest|playwright)(?:\.[^.]+)*\.config\.[cm]?[jt]s)$/i;
+    const SOURCE_OR_TEST_EXT_RE = /\.(?:[cm]?[jt]sx?)$/i;
+    const protectedInputKeys = new Set();
+    for (const inputFlag of ['config', 'tsconfig', 'spec']) {
+      if (typeof runValues[inputFlag] === 'string' && runValues[inputFlag].trim()) {
+        for (const key of canonicalOutputKeys(resolve(project, runValues[inputFlag]))) {
+          protectedInputKeys.add(key);
+        }
+      }
+    }
     for (const flag of ['json-out', 'sarif-out', 'write-baseline', 'checkpoint']) {
       if (runValues[flag] === undefined) continue;
       if (!runValues[flag].trim() || runValues[flag].includes('\0')) {
         throw new Error(`Expected --${flag} to be a valid file path`);
       }
+      const outBase = basename(resolve(runValues[flag]));
+      if (PROTECTED_OUTPUT_NAME_RE.test(outBase) || SOURCE_OR_TEST_EXT_RE.test(outBase)) {
+        throw new Error(`Refusing to use project input file as --${flag} output: ${runValues[flag]}`);
+      }
       for (const key of canonicalOutputKeys(runValues[flag])) {
+        if (protectedInputKeys.has(key)) {
+          throw new Error(`Refusing to use project input file as --${flag} output: ${runValues[flag]}`);
+        }
         if (seenOutputs.has(key)) {
           throw new Error(`Output paths must be distinct: --${seenOutputs.get(key)} and --${flag} resolve to the same file`);
         }
@@ -333,8 +357,40 @@ try {
         result = { ...result, baseline: { ...result.baseline, hints } };
       }
     }
-    if (!runValues.list && runValues['write-baseline'] && result.evaluation !== 'baseline_error') {
-      writeBaseline(runValues['write-baseline'], result.diagnostics ?? []);
+    const hasAnalysisError = ['baseline_error', 'incomplete'].includes(result.evaluation) ||
+      result.extraction.some(file => file.path === 'diagnostic');
+    if (!runValues.list && runValues['write-baseline'] && !hasAnalysisError) {
+      const partialInFile = Boolean(
+        runValues.lines?.length || runValues.since !== undefined ||
+        runValues.shard !== undefined || runValues['exclude-rule']?.length ||
+        runValues.test?.length || runValues.related || runValues['copy-exclude']?.length ||
+        runValues.project?.length,
+      );
+      const isScopedRun = files.length > 0 || Boolean(runValues.exclude?.length) || partialInFile;
+      let scopedFiles = null;
+      if (isScopedRun) {
+        const extracted = (result.extraction ?? []).map(entry => entry.file).filter(Boolean);
+        const mutantFiles = (result.mutants ?? []).map(m => m.location?.file).filter(Boolean);
+        scopedFiles = new Set([...files, ...extracted, ...mutantFiles]);
+      }
+      const written = writeBaseline(runValues['write-baseline'], result.diagnostics ?? [], {
+        replace: runValues['replace-baseline'] === true,
+        evaluation: result.evaluation,
+        scopedFiles,
+        partialInFile,
+      });
+      if (written.preserved) {
+        process.stderr.write(
+          `Baseline preserved (no edit sites in selected scope): kept ${written.stats.kept} existing finding(s) in ${runValues['write-baseline']}. Pass --replace-baseline to clear it.\n`,
+        );
+      } else if (written.stats) {
+        const { total, added, kept, removed } = written.stats;
+        if (added > 0 || removed > 0 || runValues.progress) {
+          process.stderr.write(
+            `Baseline updated (${runValues['write-baseline']}): ${total} finding(s) (${added} added, ${kept} kept, ${removed} removed).\n`,
+          );
+        }
+      }
     }
     if (!runValues.list && baselineData) {
       result = applyBaseline(result, baselineData);
@@ -365,8 +421,28 @@ try {
     } else {
       console.log(renderText(result, { verbose: runValues.verbose === true, onlyGaps: runValues['only-gaps'] === true }));
     }
-    if (['baseline_error', 'incomplete'].includes(result.evaluation) || result.extraction.some(file => file.path === 'diagnostic')) {
+    if (hasAnalysisError) {
       process.exitCode = 1;
+    } else if (!runValues.list && runValues['require-exercised']) {
+      const mutants = result.mutants ?? [];
+      const isNodeRunner = result.runner === 'node';
+      const exercisedStatuses = isNodeRunner ? ['killed'] : ['killed', 'survived'];
+      const exercised = mutants.filter(m => exercisedStatuses.includes(m.status)).length;
+      if (result.evaluation === 'no_sites' || mutants.length === 0) {
+        process.stderr.write('Error: --require-exercised failed: no edit sites in the selected scope.\n');
+        process.exitCode = 1;
+      } else if (exercised === 0) {
+        const counts = new Map();
+        for (const m of mutants) counts.set(m.status, (counts.get(m.status) ?? 0) + 1);
+        const breakdown = [...counts].map(([status, count]) => `${count} ${status}`).join(', ');
+        const detail = isNodeRunner
+          ? `--runner node does not record reachability and 0 of ${mutants.length} selected edit(s) were killed (${breakdown})`
+          : `0 of ${mutants.length} selected edit(s) were exercised by tests (${breakdown})`;
+        process.stderr.write(`Error: --require-exercised failed: ${detail}.\n`);
+        process.exitCode = 1;
+      } else if (runValues['fail-on-gaps'] && (result.diagnostics?.length ?? 0) > 0) {
+        process.exitCode = 2;
+      }
     } else if (runValues['fail-on-gaps'] && (result.diagnostics?.length ?? 0) > 0) {
       process.exitCode = 2;
     }

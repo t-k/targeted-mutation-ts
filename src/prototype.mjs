@@ -5,10 +5,26 @@ import { thresholdGaps } from './threshold.mjs';
 import { withTypeScriptSyntax } from './typescript-compiler.mjs';
 import { inside, runVitest, withCopy } from './vitest.mjs';
 
-function readThresholdSites(ts, source, file, operators) {
+function readThresholdSites(ts, source, file, operators, { allowNonLiteral = false } = {}) {
   const tree = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
   if (tree.parseDiagnostics.length) {
     return { error: ts.flattenDiagnosticMessageText(tree.parseDiagnostics[0].messageText, '\n') };
+  }
+  const immutableIdentifiers = new Set();
+  for (const statement of tree.statements) {
+    if (ts.isImportDeclaration(statement) && statement.importClause && !statement.importClause.isTypeOnly) {
+      if (statement.importClause.name) immutableIdentifiers.add(statement.importClause.name.text);
+      const bindings = statement.importClause.namedBindings;
+      if (bindings && ts.isNamedImports(bindings)) {
+        for (const spec of bindings.elements) {
+          if (!spec.isTypeOnly) immutableIdentifiers.add(spec.name.text);
+        }
+      }
+    } else if (ts.isVariableStatement(statement) && (statement.declarationList.flags & ts.NodeFlags.Const)) {
+      for (const decl of statement.declarationList.declarations) {
+        if (ts.isIdentifier(decl.name)) immutableIdentifiers.add(decl.name.text);
+      }
+    }
   }
   const sites = [];
   const extractBody = fn => {
@@ -30,18 +46,28 @@ function readThresholdSites(ts, source, file, operators) {
     const operator = comparison.operatorToken.getText(tree);
     if (!operators.has(operator)) return;
 
+    const isConstantRef = node =>
+      ts.isIdentifier(node) && node.text !== parameter.name.text && immutableIdentifiers.has(node.text);
     const literal = comparison.right;
     const numeric = ts.isNumericLiteral(literal)
       ? literal : ts.isPrefixUnaryExpression(literal) && literal.operator === ts.SyntaxKind.MinusToken &&
         ts.isNumericLiteral(literal.operand) ? literal.operand : undefined;
-    if (!numeric) return;
-    const value = Number(numeric.text);
-    const threshold = numeric === literal ? value : -value;
-    if (!Number.isSafeInteger(threshold)) return;
+    let threshold = null;
+    let isLiteral = false;
+    if (numeric) {
+      const value = Number(numeric.text);
+      const parsed = numeric === literal ? value : -value;
+      if (!Number.isSafeInteger(parsed)) return;
+      threshold = parsed;
+      isLiteral = true;
+    } else if (!allowNonLiteral || !isConstantRef(literal)) {
+      return;
+    }
     sites.push({
       operator,
       functionName: nameNode.getText(tree),
       threshold,
+      isLiteral,
       operand: comparison.left.getText(tree),
       from: comparison.getStart(tree),
       to: comparison.end,
@@ -65,8 +91,8 @@ function readThresholdSites(ts, source, file, operators) {
   return { sites };
 }
 
-function scanThresholdSites(source, file, operators) {
-  const { sites, error } = withTypeScriptSyntax(ts => readThresholdSites(ts, source, file, operators));
+function scanThresholdSites(source, file, operators, options) {
+  const { sites, error } = withTypeScriptSyntax(ts => readThresholdSites(ts, source, file, operators, options));
   if (error !== undefined) throw new Error(error);
   return sites;
 }
@@ -75,6 +101,10 @@ const comparisonOperators = new Set(['<', '<=', '>', '>=']);
 
 export function comparisonThresholdSites(source, file) {
   return scanThresholdSites(source, file, comparisonOperators);
+}
+
+export function callableComparisonSites(source, file) {
+  return scanThresholdSites(source, file, comparisonOperators, { allowNonLiteral: true });
 }
 
 export function thresholdSites(source, file, operator = '>=') {

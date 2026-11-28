@@ -731,18 +731,28 @@ function vitestOutcome(root, { report, testsToRun, product, timeout = 60_000 }, 
       }
     }
     const failed = data.tests.filter(test => test.status === 'failed');
+    const passedCount = data.tests.filter(test => test.status === 'passed').length;
+    const skippedCount = data.tests.filter(test => ['skipped', 'skip', 'todo', 'pending'].includes(test.status)).length;
     const complete = data.reason === 'passed' || data.reason === 'failed';
     const isTimeout = Boolean(data.timeout || failed.some(test => test.timeout));
     const status = isTimeout ? 'timeout'
       : !complete || data.errors.length ? 'error'
         : result.status === 1 && failed.length ? 'failed'
-          : result.status === 0 && data.tests.some(test => test.status === 'passed') && !failed.length ? 'passed' : 'error';
+          : result.status === 0 && passedCount > 0 && !failed.length ? 'passed' : 'error';
+    const errors = [...(data.errors ?? [])];
+    if (status === 'error' && !errors.length && !failed.length && passedCount === 0) {
+      if (skippedCount > 0) {
+        errors.push(`No runnable tests were executed (0 passed, ${skippedCount} skipped).`);
+      } else if (data.tests.length === 0) {
+        errors.push('No tests were collected.');
+      }
+    }
     return {
       status,
       ...(isTimeout ? { statusReason: 'Vitest test timeout' } : {}),
       tests: data.tests,
       files: data.modules ?? [],
-      errors: data.errors,
+      errors,
       moduleErrors: data.moduleErrors ?? [],
       fileErrors: data.fileErrors ?? [],
       output: result.stderr + result.stdout,

@@ -1,6 +1,6 @@
 {
   "name": "targeted-mutation",
-  "version": "0.10.1",
+  "version": "0.10.2",
   "description": "Find the tests a JavaScript or TypeScript suite is missing by trying small, targeted source edits against it.",
   "keywords": [
     "mutation-testing",

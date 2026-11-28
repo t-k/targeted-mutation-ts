@@ -1,0 +1,9 @@
+ScopeKind: Full, PartialFile, PartialLine, EmptyLineScope, OutOfRangeLine
+BaselineWrite: None, Fresh, MergeExisting, ReplaceExisting
+RequireExercised: Off, On
+ExercisedOutcome: ExercisedWithGap, ExercisedClean, AllUnreached, NoSites
+CheckpointOutputs: None, SameDirReports, CustomJsonSarif, ModifiedSource
+
+IF [ScopeKind] = "OutOfRangeLine" THEN [ExercisedOutcome] = "NoSites" AND [BaselineWrite] = "None";
+IF [ScopeKind] = "EmptyLineScope" THEN [ExercisedOutcome] = "NoSites";
+IF [ExercisedOutcome] = "NoSites" THEN [ScopeKind] IN {"EmptyLineScope", "OutOfRangeLine"};

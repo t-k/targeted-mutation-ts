@@ -77,10 +77,12 @@ Output & Baselines:
   --verbose                     Include killed edits in text output (hidden by default).
   --only-gaps                   Show only test gaps and summary in text output.
   --fail-on-gaps                Exit with code 2 when one or more test gaps are reported.
+  --require-exercised           Exit with code 1 when the selected scope has no edit sites or no edit is exercised by tests.
   --json-out FILE               Also write the JSON report to FILE (can be combined with --format text).
   --sarif-out FILE              Also write the SARIF report to FILE (can be combined with --format text).
   --baseline FILE               Suppress findings already recorded in FILE.
-  --write-baseline FILE         Write this run's findings to FILE for future --baseline runs.
+  --write-baseline FILE         Write this run's findings to FILE for future --baseline runs (preserves out-of-scope entries).
+  --replace-baseline            With --write-baseline: replace an existing baseline file even on partial or empty scopes.
   --mode script|module          extract: parse goal.
   --dialect ts|tsx              extract: source dialect.
   -h, --help                    Show this help.

@@ -99,7 +99,7 @@ npx targeted-mutation analyze --exclude-rule nullish-equality/v1 --copy-exclude-
 
 `tmts` is a short alias for the same command. `targeted-mutation --help` lists every option. Project defaults (`runner`, `files`, `exclude`, `tests`, `projects`, `mutators`, `timeout`, `baselineTimeout`, `copyExclude`, `copyInclude`, `copyExcludeGitignore`, `excludeRules`, `deterministic`, `displaceThresholds`, `failOnGaps`, etc.) can also be placed in `targeted-mutation.config.json`, `targeted-mutation.config.mjs`, or `package.json#targetedMutation`; see [Project configuration](docs/analysis.md#project-configuration).
 
-> **Exit codes:** `analyze` exits with `0` by default even when test gaps are reported (`1` on baseline/runner/parse/argument errors). Pass `--fail-on-gaps` (or set `"failOnGaps": true` in `targeted-mutation.config.json`) to exit with code `2` when one or more test gaps remain.
+> **Exit codes:** `analyze` exits with `0` by default even when test gaps are reported (`1` on baseline/runner/parse/argument errors). Pass `--fail-on-gaps` (or set `"failOnGaps": true` in `targeted-mutation.config.json`) to exit with code `2` when one or more test gaps remain, and `--require-exercised` (or `"requireExercised": true`) to exit with code `1` when no edit sites are selected or zero edits are exercised by tests.
 
 ### Reading the report
 

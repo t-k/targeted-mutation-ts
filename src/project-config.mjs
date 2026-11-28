@@ -470,7 +470,7 @@ const KNOWN_CONFIG_KEYS = new Set([
   'runner', 'files', 'exclude', 'tests', 'projects', 'mutators', 'timeout', 'baselineTimeout', 'baselineWorkers',
   'concurrency', 'config', 'tsconfig', 'spec', 'baseline', 'related', 'copyExclude', 'copyInclude', 'copyExcludeGitignore',
   'excludeRules', 'typeCheck', 'deterministic', 'displaceThresholds', 'isolatedTrials', 'verifyTrials',
-  'progress', 'failOnGaps', 'verbose', 'onlyGaps',
+  'progress', 'failOnGaps', 'requireExercised', 'verbose', 'onlyGaps',
 ]);
 
 const CONFIG_KEY_HINTS = {
@@ -523,6 +523,7 @@ export function mergeProjectConfig(configObj, cliValues, cliFiles, { sourceName 
   if (values['verify-trials'] === undefined && configObj.verifyTrials !== undefined) values['verify-trials'] = String(configObj.verifyTrials);
   if (values.progress === undefined && configObj.progress === true) values.progress = true;
   if (values['fail-on-gaps'] === undefined && configObj.failOnGaps === true) values['fail-on-gaps'] = true;
+  if (values['require-exercised'] === undefined && configObj.requireExercised === true) values['require-exercised'] = true;
   if (values.verbose === undefined && values['only-gaps'] !== true && configObj.verbose === true) values.verbose = true;
   if (values['only-gaps'] === undefined && values.verbose !== true && configObj.onlyGaps === true) values['only-gaps'] = true;
   const configFiles = Array.isArray(configObj.files) ? configObj.files.map(String) : [];

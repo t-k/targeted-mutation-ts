@@ -74,11 +74,13 @@ export function listCandidates(project, files, options = {}) {
   const shard = parseShard(options.shard);
   const strategy = parseShardingStrategy(options.sharding);
 
+  const excludedRuleSet = new Set((options['exclude-rule'] ?? []).map(r => String(r).trim()).filter(Boolean));
   const { subjects, extraction } = collectComparisons(root, files, { ...options, mutators: undefined });
   const boundaryKeys = new Set();
   const candidates = [];
   for (const subject of subjects) {
     for (const site of subject.sites) {
+      if (excludedRuleSet.has(site.rule)) continue;
       boundaryKeys.add(`${site.location.file}:${site.edit[0]}:${site.replacement}`);
       candidates.push({
         id: site.id,

@@ -297,12 +297,22 @@ try {
     subjectKey(project, relative(workspace, file)))));
   if (!passed.length || tests.size !== passed.length || passed.some(test => !coveredModules.has(subjectKey(test.project, test.file))) ||
       baseline.snapshot.errors.length || baseline.snapshot.reason !== 'passed') {
+    const failed = failedTests(baseline.snapshot);
+    const errors = [...(baseline.snapshot.errors ?? [])];
+    if (!passed.length && !failed.length && !errors.length) {
+      const skippedCount = baseline.snapshot.tests.filter(test => ['skipped', 'skip', 'todo', 'pending'].includes(test.status)).length;
+      if (skippedCount > 0) {
+        errors.push(`No runnable tests were executed (0 passed, ${skippedCount} skipped).`);
+      } else if (baseline.snapshot.tests.length === 0) {
+        errors.push('No tests were collected.');
+      }
+    }
     record({ baseline: { status: 'error',
       ...(baseline.snapshot.modules?.length ? { files: baseline.snapshot.modules } : {}),
       ...(baseline.snapshot.fileErrors?.length ? { fileErrors: baseline.snapshot.fileErrors } : {}),
-      errors: baseline.snapshot.errors,
+      errors,
       output: baseline.snapshot.tests.flatMap(test => test.failures).join('\n'),
-      failedTests: failedTests(baseline.snapshot) } });
+      failedTests: failed } });
   } else {
     record({ baseline: { status: 'passed', tests: baseline.snapshot.tests.length } });
     const baselineCoverage = indexCoverage(baseline.records, tests);

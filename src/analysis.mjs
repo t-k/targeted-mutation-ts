@@ -3,7 +3,7 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } fr
 import { availableParallelism } from 'node:os';
 import { dirname, relative, resolve, sep } from 'node:path';
 import { byteLocations, byteOffsets, extract, sourceDialect } from './extract.mjs';
-import { comparisonThresholdSites } from './prototype.mjs';
+import { callableComparisonSites } from './prototype.mjs';
 import { marginGaps, thresholdGaps } from './threshold.mjs';
 import { extractLoopCounterNonNegative, extractReachability, filterReachableThresholdGap, isBoundaryReachable } from './reachability.mjs';
 import { checkpointKeyForTrial } from './checkpoint.mjs';
@@ -81,9 +81,14 @@ export function collectComparisons(root, files, options) {
     const { path, fallback, reason, candidates: comparisons, diagnostics } = extract(input, { file, mode: options.mode, dialect: options.dialect, logical: options.runner === 'playwright' });
     extraction.push({ file, path, reason, diagnostics, ...(fallback === undefined ? {} : { fallback }) });
     if (path === 'diagnostic') continue;
+    const excludedRules = new Set((options['exclude-rule'] ?? []).map(r => String(r).trim()).filter(Boolean));
     // A boundary under a `// Stryker disable` comment is not edited by any profile.
+    // Keep comparison-boundary/v1 sites during extraction so runtime observations can still synthesize
+    // comparison-threshold/v1, comparison-margin/v1, and comparison-tighten/v1 when only boundary is excluded.
     const disabled = ignoredSwaps(input, file, { dialect: options.dialect });
-    const kept = disabled.size ? comparisons.filter(candidate => !disabled.has(`${candidate.edit[0]}:${candidate.replacement}`)) : comparisons;
+    const kept = comparisons.filter(candidate =>
+      !disabled.has(`${candidate.edit[0]}:${candidate.replacement}`) &&
+      !(candidate.rule !== 'comparison-boundary/v1' && excludedRules.has(candidate.rule)));
     if (kept.length !== comparisons.length) extraction.at(-1).ignored = comparisons.length - kept.length;
     const candidates = ['targeted', 'full'].includes(options.mutators)
       ? withProfileSites(kept, input, file, options, selected, typeContext?.forFile(file) ?? null)
@@ -266,7 +271,7 @@ function thresholdLookup(subject) {
       const source = subject.input.toString();
       offsets = byteOffsets(source);
       byOperator = new Map();
-      for (const { operator, ...entry } of comparisonThresholdSites(source, subject.file)) {
+      for (const { operator, ...entry } of callableComparisonSites(source, subject.file)) {
         let entries = byOperator.get(operator);
         if (!entries) byOperator.set(operator, entries = new Map());
         const left = offsets[entry.from];
@@ -280,10 +285,18 @@ function thresholdLookup(subject) {
 }
 
 function callableThreshold(subject, site, observations, specification, lookupThreshold) {
-  if (!observations.complete ||
-      !/^-?\s*\d+$/.test(subject.input.subarray(...site.right).toString())) return null;
-  const meta = lookupThreshold(site);
-  if (!meta || observations.rows.some(row => row.operands[1] !== meta.threshold)) return null;
+  if (!observations.complete || !observations.rows.length) return null;
+  const rawMeta = lookupThreshold(site);
+  if (!rawMeta) return null;
+  let thresholdValue = rawMeta.threshold;
+  if (rawMeta.isLiteral) {
+    if (observations.rows.some(row => row.operands[1] !== thresholdValue)) return null;
+  } else {
+    const observed = observations.rows[0].operands[1];
+    if (!Number.isSafeInteger(observed) || observations.rows.some(row => row.operands[1] !== observed)) return null;
+    thresholdValue = observed;
+  }
+  const meta = rawMeta.threshold === thresholdValue ? rawMeta : { ...rawMeta, threshold: thresholdValue };
   const contract = Object.hasOwn(specification, meta.functionName) ? specification[meta.functionName] : null;
   const specified = contract?.operator === site.operator && contract.threshold === meta.threshold &&
     typeof contract.rationale === 'string' && contract.rationale.trim().length > 0;
@@ -315,7 +328,8 @@ function variableMargin(site, observation, constant) {
 const isBoundaryEquivalentShift = (operator, threshold, alternate) =>
   (operator === '>=' || operator === '<') ? alternate === threshold + 1 : alternate === threshold - 1;
 
-export function planFocusedTrials(subjects, trace, baseline, specification, displaceThresholds) {
+export function planFocusedTrials(subjects, trace, baseline, specification, displaceThresholds, excludeRules = []) {
+  const excludedRuleSet = new Set((excludeRules ?? []).map(r => String(r).trim()).filter(Boolean));
   const sites = [];
   const thresholdRequests = [];
   const marginRequests = [];
@@ -359,9 +373,11 @@ export function planFocusedTrials(subjects, trace, baseline, specification, disp
       observation, threshold: callable, thresholdGap: constant?.gap ?? null, marginGap: margin?.gap ?? null,
       reachability,
     };
-    trials.push(boundary);
+    if (!excludedRuleSet.has(site.rule)) {
+      trials.push(boundary);
+    }
     let thresholdAdjustment;
-    if (constant?.gap) {
+    if (constant?.gap && !excludedRuleSet.has('comparison-threshold/v1')) {
       const { alternate } = constant.gap;
       const rhsText = subject.input.subarray(...site.right).toString();
       const isLiteral = /^-?\s*\d+$/.test(rhsText) && Number(rhsText.replace(/\s+/g, '')) === constant.value;
@@ -378,7 +394,7 @@ export function planFocusedTrials(subjects, trace, baseline, specification, disp
       }
     }
     let marginAdjustment;
-    if (margin?.gap) {
+    if (margin?.gap && !excludedRuleSet.has('comparison-margin/v1')) {
       const { alternate } = margin.gap;
       if (!isBoundaryEquivalentShift(site.operator, 0, alternate)) {
         marginAdjustment = alternate;
@@ -388,7 +404,7 @@ export function planFocusedTrials(subjects, trace, baseline, specification, disp
         });
       }
     }
-    if (tightened && tightened.adjustment !== thresholdAdjustment && tightened.adjustment !== marginAdjustment) {
+    if (tightened && !excludedRuleSet.has('comparison-tighten/v1') && tightened.adjustment !== thresholdAdjustment && tightened.adjustment !== marginAdjustment) {
       trials.push({ ...tightened, threshold: callable });
     }
   }
@@ -913,7 +929,7 @@ export function prepareAnalysis(project, files, options) {
     else if (coverageSites.size) coverage = indexFocusedCoverage(replay.trace, coverageSites);
   }
 
-  const rawTrials = planFocusedTrials(subjects, trace, baseline, specification, options['displace-thresholds']);
+  const rawTrials = planFocusedTrials(subjects, trace, baseline, specification, options['displace-thresholds'], options['exclude-rule']);
   const trials = options.shardKeys
     ? rawTrials.filter(trial => options.shardKeys.has(
       `${trial.site.location.file}:${trial.site.location.start}:${trial.site.location.end}:${trial.site.rule}:${trial.site.replacement}`,
@@ -970,7 +986,7 @@ export function prepareAnalysisFromTrace(project, files, options, recordedBaseli
     trace = null;
   }
 
-  const rawTrials = planFocusedTrials(subjects, trace, baseline, specification, options['displace-thresholds']);
+  const rawTrials = planFocusedTrials(subjects, trace, baseline, specification, options['displace-thresholds'], options['exclude-rule']);
   const trials = options.shardKeys
     ? rawTrials.filter(trial => options.shardKeys.has(
       `${trial.site.location.file}:${trial.site.location.start}:${trial.site.location.end}:${trial.site.rule}:${trial.site.replacement}`,
@@ -1077,6 +1093,9 @@ export function completeAnalysis({ root, report, options, attempt, baseline, tra
       result.status = report.instrumented.stable === false ? 'unstable'
         : trial.observation.loaded ? 'unreached' : 'unevaluated';
       if (result.status === 'unreached') delete result.reachedTests;
+      else if (result.status === 'unevaluated' && !result.statusReason) {
+        result.statusReason = 'Source file was not loaded by the baseline tests';
+      }
     }
     if (audit) {
       const status = focusedAuditStatus(audit.source, audit.probe, predicted, result.status);

@@ -34,6 +34,97 @@ export const targetedRules = {
   clampBound: 'clamp-bound/v1', literalSetPrune: 'literal-set-prune/v1', mergePrecedence: 'merge-precedence/v1',
   quantifierSwap: 'quantifier-swap/v1', regexAnchor: 'regex-anchor-slack/v1', cleanupDropped: 'cleanup-dropped/v1',
 };
+
+export const focusedRules = [
+  'comparison-boundary/v1',
+  'comparison-threshold/v1',
+  'comparison-margin/v1',
+  'comparison-tighten/v1',
+  'jsx-disabled-drop-left/v1',
+];
+
+export const builtinMutatorNames = [
+  'ArithmeticOperator',
+  'ArrayDeclaration',
+  'ArrowFunction',
+  'AssignmentOperator',
+  'BlockStatement',
+  'BooleanLiteral',
+  'CallExpression',
+  'ConditionalExpression',
+  'EqualityOperator',
+  'LogicalOperator',
+  'MethodExpression',
+  'ObjectLiteral',
+  'OptionalChaining',
+  'Regex',
+  'StringLiteral',
+  'UnaryOperator',
+  'UpdateOperator',
+];
+
+export const KNOWN_MUTATION_RULES = new Set([
+  ...Object.values(targetedRules),
+  ...focusedRules,
+  ...builtinMutatorNames,
+]);
+
+const KNOWN_RULE_CANONICAL = new Map();
+for (const rule of KNOWN_MUTATION_RULES) {
+  KNOWN_RULE_CANONICAL.set(rule.toLowerCase(), rule);
+  const base = rule.replace(/\/v\d+$/, '');
+  if (base !== rule) KNOWN_RULE_CANONICAL.set(base.toLowerCase(), rule);
+}
+
+function editDistance(a, b) {
+  const m = a.length;
+  const n = b.length;
+  const dp = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i++) {
+    let prev = dp[0];
+    dp[0] = i;
+    for (let j = 1; j <= n; j++) {
+      const temp = dp[j];
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      dp[j] = Math.min(dp[j] + 1, dp[j - 1] + 1, prev + cost);
+      prev = temp;
+    }
+  }
+  return dp[n];
+}
+
+function suggestRuleName(input) {
+  const query = input.toLowerCase();
+  let best = null;
+  let bestDist = Infinity;
+  for (const rule of KNOWN_MUTATION_RULES) {
+    const full = rule.toLowerCase();
+    const base = full.replace(/\/v\d+$/, '');
+    const dist = Math.min(editDistance(query, full), editDistance(query, base));
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = rule;
+    }
+  }
+  const threshold = Math.max(2, Math.floor(Math.max(query.length, (best ?? '').length) * 0.4));
+  return best && bestDist <= threshold ? best : null;
+}
+
+export function validateExcludeRules(rules = []) {
+  const normalized = [];
+  for (const raw of rules) {
+    const trimmed = String(raw ?? '').trim();
+    if (!trimmed) continue;
+    const canonical = KNOWN_RULE_CANONICAL.get(trimmed.toLowerCase());
+    if (!canonical) {
+      const suggestion = suggestRuleName(trimmed);
+      const hint = suggestion ? ` Did you mean "${suggestion}"?` : '';
+      throw new Error(`Unknown rule "${trimmed}" in --exclude-rule.${hint}`);
+    }
+    if (!normalized.includes(canonical)) normalized.push(canonical);
+  }
+  return normalized;
+}
 // Two other operators for each arithmetic one: its inverse, and the one the same operands most often agree on.
 // (Maps: a method may be named like a property every object has.)
 const arithmeticSwaps = new Map([['+', ['-', '*']], ['-', ['+', '/']], ['*', ['/', '+']], ['/', ['*', '%']], ['%', ['/', '+']]]);
@@ -196,7 +287,9 @@ export function collectMutations(text, file, { dialect, selected = () => true, s
         const swappedOp = arithmetic.get(operator);
         add('ArithmeticOperator', node, swapToken(node, token, swappedOp), undefined, { arithmeticSwap: swappedOp });
       }
+      const boundarySwap = { '<': '<=', '<=': '<', '>': '>=', '>=': '>' }[operator];
       for (const replacement of equality.get(operator) ?? []) {
+        if (replacement === boundarySwap && excludedRuleSet.has('comparison-boundary/v1')) continue;
         add('EqualityOperator', node, swapToken(node, token, replacement), undefined, { operator: [begin(token), replacement] });
       }
       // The focused analysis moves a comparison's right side by an integer it only knows after a recorded run:

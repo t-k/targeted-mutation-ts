@@ -167,29 +167,45 @@ export function parseBaselineWithReasons(text, label = 'baseline') {
     if (!data.every(entry => typeof entry === 'string')) {
       throw new Error(`Invalid legacy baseline array in ${label}`);
     }
-    return { ids: new Set(data), reasons: new Map() };
+    const entries = [...new Set(data)].map(id => ({ id, kind: 'GAP', file: '', code: '', reason: '' }));
+    return { ids: new Set(data), reasons: new Map(), entries };
   }
   if (!data || typeof data !== 'object' || data.version !== BASELINE_VERSION || !Array.isArray(data.findings)) {
     throw new Error(`Unsupported baseline format in ${label}: expected version ${BASELINE_VERSION}`);
   }
   const ids = new Set();
   const reasons = new Map();
+  const entries = [];
   for (const entry of data.findings) {
     const id = typeof entry === 'string' ? entry : entry?.id;
     if (typeof id !== 'string' || !id.length) {
       throw new Error(`Invalid baseline entry in ${label}`);
     }
+    let reason = '';
     if (entry && typeof entry === 'object' && entry.reason !== undefined) {
       if (typeof entry.reason !== 'string') {
         throw new Error(`Invalid baseline entry in ${label}: reason must be a string`);
       }
       if (entry.reason.trim().length > 0) {
         reasons.set(id, entry.reason);
+        reason = entry.reason;
       }
+    }
+    if (!ids.has(id)) {
+      entries.push(typeof entry === 'string'
+        ? { id, kind: 'GAP', file: '', code: '', reason: '' }
+        : {
+          id,
+          kind: entry.kind ?? 'GAP',
+          file: normalizePosixPath(entry.file),
+          ...(entry.rule !== undefined ? { rule: entry.rule } : {}),
+          code: String(entry.code ?? ''),
+          reason,
+        });
     }
     ids.add(id);
   }
-  return { ids, reasons };
+  return { ids, reasons, entries };
 }
 
 export function parseBaseline(text, label = 'baseline') {
@@ -204,17 +220,85 @@ export function loadBaselineWithReasons(path) {
   return parseBaselineWithReasons(readFileSync(path, 'utf8'), path);
 }
 
-export function writeBaseline(path, diagnostics) {
-  let existingReasons = new Map();
+export function writeBaseline(path, diagnostics, options = {}) {
+  const {
+    replace = false,
+    evaluation,
+    scopedFiles = null,
+    partialInFile = false,
+  } = options;
+  let existing = null;
   if (existsSync(path)) {
     const raw = readFileSync(path, 'utf8');
     if (raw.trim().length > 0) {
-      existingReasons = parseBaselineWithReasons(raw, path).reasons;
+      existing = parseBaselineWithReasons(raw, path);
     }
   }
-  const payload = serializeBaseline(diagnostics, existingReasons);
+  const existingReasons = existing?.reasons ?? new Map();
+  const existingEntries = existing?.entries ?? [];
+
+  if (!replace && evaluation === 'no_sites' && existingEntries.length > 0) {
+    return {
+      version: BASELINE_VERSION,
+      findings: existingEntries,
+      preserved: true,
+      stats: {
+        total: existingEntries.length,
+        added: 0,
+        kept: existingEntries.length,
+        removed: 0,
+      },
+    };
+  }
+
+  const fresh = serializeBaseline(diagnostics, existingReasons);
+  let finalFindings = fresh.findings;
+
+  if (!replace && existingEntries.length > 0 && (scopedFiles !== null || partialInFile)) {
+    const normalizedScope = scopedFiles
+      ? new Set([...scopedFiles].map(normalizePosixPath))
+      : null;
+    const freshIds = new Set(fresh.findings.map(item => item.id));
+    const preserved = existingEntries.filter(entry => {
+      if (freshIds.has(entry.id)) return false;
+      if (partialInFile) return true;
+      if (!normalizedScope) return false;
+      const entryFile = normalizePosixPath(entry.file);
+      return entryFile.length === 0 || !normalizedScope.has(entryFile);
+    });
+    if (preserved.length > 0) {
+      finalFindings = [...preserved, ...fresh.findings];
+    }
+  }
+
+  const prevIds = new Set(existingEntries.map(e => e.id));
+  const nextIds = new Set(finalFindings.map(e => e.id));
+  let added = 0;
+  let kept = 0;
+  for (const id of nextIds) {
+    if (prevIds.has(id)) kept++;
+    else added++;
+  }
+  let removed = 0;
+  for (const id of prevIds) {
+    if (!nextIds.has(id)) removed++;
+  }
+
+  const payload = {
+    version: BASELINE_VERSION,
+    findings: finalFindings,
+  };
   writeFileSync(path, JSON.stringify(payload, null, 2) + '\n', 'utf8');
-  return payload;
+  return {
+    ...payload,
+    preserved: false,
+    stats: {
+      total: finalFindings.length,
+      added,
+      kept,
+      removed,
+    },
+  };
 }
 
 export function applyBaseline(report, baseline) {

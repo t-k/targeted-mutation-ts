@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { analyze, analyzeNodeAsync, baselineRunSymbol, completeAnalysis, prepareAnalysis, prepareAnalysisFromTrace, verdict } from './analysis.mjs';
-import { checkpointKeyForTrial, computeCampaignContext, openCheckpoint } from './checkpoint.mjs';
+import { checkpointKeyForTrial, computeCampaignContextDetails, openCheckpoint } from './checkpoint.mjs';
 import { analyzeConventional } from './conventional.mjs';
 import { suppressEnclosingDiagnostics } from './enclosing-suppression.mjs';
 import { comparisonRecordsToTrace } from './playwright-bridge.mjs';
@@ -490,8 +490,11 @@ export async function analyzeOperators(
     const targets = selectScope(root, files, options).map(subject => ({
       ...subject, input: readFileSync(inside(root, subject.file)),
     }));
-    const context = computeCampaignContext(targets, { ...options, mutators: profile }, root);
-    checkpointStore = openCheckpoint(options.checkpoint, context, { mutators: profile });
+    const { context, filesHash, optionsHash } = computeCampaignContextDetails(targets, { ...options, mutators: profile }, root);
+    checkpointStore = openCheckpoint(options.checkpoint, context, { mutators: profile, filesHash, optionsHash });
+    if (checkpointStore.invalidationReason) {
+      options.onProgress?.(`Checkpoint invalidated (${checkpointStore.invalidationReason}); starting fresh.`);
+    }
   }
   const runOptions = {
     ...options,

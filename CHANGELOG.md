@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.10.2
+
+- Add opt-in `--require-exercised` (and `"requireExercised": true` in `targeted-mutation.config.json`) so CI can fail with exit code `1` when a selected scope has no edit sites or zero edits are exercised by tests (counting `killed`/`survived` on coverage-instrumented runners and `killed` on `--runner node`), and attach a `statusReason` when a focused edit is `unevaluated` because its source file was not loaded by baseline tests.
+- Validate explicit `--lines FILE:FROM-TO` targets as regular files within the file's actual line count, failing with exit code `1` on out-of-range line numbers instead of silently exiting `0` with `no_sites`.
+- Report actionable baseline errors when Vitest executes zero runnable tests (such as all-skipped test files, reporting `No runnable tests were executed (0 passed, N skipped).` or `No tests were collected.`) while preserving exit code `1`.
+- Protect existing `--write-baseline` files from accidental data loss: preserve existing findings and user-written `reason` fields on empty scopes (`no_sites`), partial scopes (`--lines`, `--since`, `--shard`, `--exclude-rule`, `--test`, `--related`, `--copy-exclude`, `--project`, or subset file runs), and incomplete/error runs; add `--replace-baseline` for explicit full replacement and print a concise baseline update summary to `stderr`.
+- Exclude invocation-owned output paths (`--checkpoint`, `--json-out`, `--sarif-out`, `--write-baseline`) from `--checkpoint` campaign context hashing (while refusing to overwrite project config/input files), and report `invalidationReason` (`project files changed`, `analysis options changed`, etc.) in JSON summaries and `--progress` output when a checkpoint cannot be reused.
+- Generate ready `suggestedTest` assertions for exported unary comparison functions whose threshold is an immutable imported or top-level `const` identifier whose runtime value is a constant safe integer (while avoiding mutable object properties).
+- Validate `--exclude-rule` names against all known targeted, focused, and built-in rules with typo suggestions (`Did you mean "..."?`), and apply exclusions consistently across `--list`, focused comparison rules (`comparison-boundary/v1`, `comparison-threshold/v1`, `comparison-margin/v1`, `comparison-tighten/v1`), and runtime sessions without dropping sibling threshold trials when only `comparison-boundary/v1` is excluded.
+
 ## 0.10.1
 
 - Parallelize Vitest isolated fallback trials across up to `--concurrency` reusable serial fresh lanes when `--isolated-trials` is not forced and the project does not configure `globalSetup` or `fileParallelism: false`, and print a one-line `Isolated fallback (N): ...` breakdown in text output.

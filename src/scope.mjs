@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { isUtf8 } from 'node:buffer';
-import { closeSync, mkdtempSync, openSync, readSync, readdirSync, rmSync } from 'node:fs';
+import { closeSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isAbsolute, posix, relative, resolve, sep } from 'node:path';
 import { canonicalPath, copyPathIsExcluded, inside, resolveCopyExclusions, resolveCopyInclusions } from './vitest.mjs';
@@ -205,6 +205,24 @@ export function selectScope(rawRoot, files, { lines = [], since, 'copy-exclude':
     return relative(root, path);
   }
 
+  const lineCounts = new Map();
+  const countLines = file => {
+    if (lineCounts.has(file)) return lineCounts.get(file);
+    const full = resolve(root, file);
+    const st = statSync(full, { throwIfNoEntry: false });
+    if (!st?.isFile()) {
+      throw new Error(`Expected --lines target to be a regular file: ${file.replaceAll('\\', '/')}`);
+    }
+    const text = readFileSync(full, 'utf8');
+    let count = 0;
+    if (text.length > 0) {
+      const parts = text.split(/\r\n|[\n\r\u2028\u2029]/);
+      count = /(?:\r\n|[\n\r\u2028\u2029])$/.test(text) ? parts.length - 1 : parts.length;
+    }
+    lineCounts.set(file, count);
+    return count;
+  };
+
   const ranges = new Map();
   for (const entry of lines) {
     const match = /^(.*):(\d+)(?:-(\d+))?$/.exec(entry);
@@ -213,7 +231,14 @@ export function selectScope(rawRoot, files, { lines = [], since, 'copy-exclude':
       throw new Error('Expected --lines FILE:FROM-TO');
     }
     const file = sourceFile(match[1]);
-    ranges.set(file, [...(ranges.get(file) ?? []), [+match[2], +match[3]]]);
+    const fromLine = +match[2];
+    const toLine = +match[3];
+    const totalLines = countLines(file);
+    if (fromLine > totalLines || toLine > totalLines) {
+      const spec = fromLine === toLine ? `Line ${fromLine}` : `Line range ${fromLine}-${toLine}`;
+      throw new Error(`${spec} is out of range for ${file.replaceAll('\\', '/')} (${totalLines} ${totalLines === 1 ? 'line' : 'lines'})`);
+    }
+    ranges.set(file, [...(ranges.get(file) ?? []), [fromLine, toLine]]);
   }
 
   const selection = files.length ? files : lines.length ? [...ranges.keys()] : listSource(root, exclusions, root, inclusions);

@@ -53,7 +53,10 @@ test('uses the product runner for the M0 threshold shift and filters on the oper
   assert.deepEqual(result.mutants.map(result => result.status), ['killed', 'survived']);
   assert.equal(result.mutants[1].evidence, 'predicted');
   assert.deepEqual(result.mutants[1].audit, { status: 'agreed', source: 'survived', probe: null });
-  assert.equal(analyze('fixtures/shipping', 'src/shipping.ts', '--lines', 'src/shipping.ts:2-2').evaluation, 'no_sites');
+  assert.throws(
+    () => analyze('fixtures/shipping', 'src/shipping.ts', '--lines', 'src/shipping.ts:2-2'),
+    /out of range/,
+  );
 });
 
 test('coercion preserves evaluation order, count and thrown exceptions without proof-based skips', () => {

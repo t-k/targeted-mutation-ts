@@ -1,0 +1,8 @@
+ScopeKind	BaselineWrite	RequireExercised	ExercisedOutcome	CheckpointOutputs
+Full	None	Off	ExercisedWithGap	None
+Full	MergeExisting	On	AllUnreached	SameDirReports
+PartialLine	MergeExisting	Off	ExercisedWithGap	CustomJsonSarif
+EmptyLineScope	MergeExisting	On	NoSites	None
+EmptyLineScope	ReplaceExisting	Off	NoSites	None
+OutOfRangeLine	None	On	NoSites	None
+PartialFile	MergeExisting	On	ExercisedClean	ModifiedSource
