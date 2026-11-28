@@ -226,17 +226,19 @@ static void emit_javascript(const v8::FunctionCallbackInfo<v8::Value>& args)
 
 NODE_MODULE_INIT()
 {
+  v8::Isolate *isolate = v8::Isolate::GetCurrent();
+  if (!isolate) return;
   v8::Local<v8::Function> validate;
   if (!v8::Function::New(context, valid_module_text).ToLocal(&validate)) return;
-  exports->Set(context, v8::String::NewFromUtf8Literal(context->GetIsolate(), "validModule"), validate)
+  exports->Set(context, v8::String::NewFromUtf8Literal(isolate, "validModule"), validate)
     .FromMaybe(false);
   v8::Local<v8::Function> script;
   if (!v8::Function::New(context, valid_script_text).ToLocal(&script)) return;
-  exports->Set(context, v8::String::NewFromUtf8Literal(context->GetIsolate(), "validScript"), script)
+  exports->Set(context, v8::String::NewFromUtf8Literal(isolate, "validScript"), script)
     .FromMaybe(false);
   v8::Local<v8::Function> emit;
   if (!v8::Function::New(context, emit_javascript).ToLocal(&emit)) return;
-  exports->Set(context, v8::String::NewFromUtf8Literal(context->GetIsolate(), "emitJavaScript"), emit)
+  exports->Set(context, v8::String::NewFromUtf8Literal(isolate, "emitJavaScript"), emit)
     .FromMaybe(false);
 }
 #else
