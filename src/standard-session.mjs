@@ -138,14 +138,16 @@ async function runInThread(lane, plans, limit, deadline, onEvent, onTick) {
 }
 
 async function disposeLane(lane) {
-  if (!lane) return;
+  if (!lane) return true;
   const idx = lanes.indexOf(lane);
   if (idx !== -1) lanes.splice(idx, 1);
-  try { lane.context?.cancelCurrentRun?.('timeout'); } catch { /* ignore */ }
+  await Promise.resolve().then(() => lane.context?.cancelCurrentRun?.('timeout')).catch(() => {});
+  let closed = false;
   await Promise.race([
-    Promise.resolve().then(() => lane.context?.close?.()).catch(() => {}),
+    Promise.resolve().then(() => lane.context?.close?.()).then(() => { closed = true; }, () => { closed = false; }),
     new Promise(resolveClose => setTimeout(resolveClose, 5_000)),
   ]);
+  return closed;
 }
 
 async function run(specs, state, lane = lanes[0], timeoutMs = runTimeout) {
@@ -185,8 +187,8 @@ async function run(specs, state, lane = lanes[0], timeoutMs = runTimeout) {
       deadlinePromise,
     ]);
     if (timedOut || outcome === 'timeout') {
-      await disposeLane(lane);
-      return { timedOut: true };
+      const disposed = await disposeLane(lane);
+      return { timedOut: true, disposed };
     }
     if (!lane.snapshot) throw new Error('Vitest did not report a completed run');
     const records = existsSync(runDestination)
@@ -194,6 +196,7 @@ async function run(specs, state, lane = lanes[0], timeoutMs = runTimeout) {
     return { snapshot: lane.snapshot, records };
   } finally {
     clearTimeout(timeout);
+    if (!timedOut) rmSync(runDestination, { force: true });
   }
 }
 
@@ -334,6 +337,8 @@ try {
       pending.push({ mutant, plan });
     }
     let fresh;
+    let hadRunnerError = false;
+    let lastRunnerError = null;
     const totals = { inWorker: 0, isolated: 0, sampled: 0, mismatches: [], inWorkerUsed: false };
     // Decides a list of reached trials: inside workers where that holds, in fresh runs for the rest.
     // What a surviving edit changed in the code its tests run, with the tests by name.
@@ -400,6 +405,7 @@ try {
         // further lane, which costs a Vitest instance, its transforms and an environment per test file, opens for
         // every six seconds of measured work in the longest test file.
         const inLanes = async step => {
+          if (!lanes.length) lanes.push(await openLane(0));
           const events = await runInThread(lanes[0], step, limit, Date.now() + 2_000, onTrialEvent, onProgressTick);
           // Each further round takes what is left: entries the deadline cut off, and test files that start again
           // in a new worker after a control run differed.
@@ -477,6 +483,7 @@ try {
         // so these runs take the files one by one.
         let assessed;
         let changed = {};
+        let abortAfterThis = false;
         try {
           fresh ??= (beside === oneByOne && lanes[0]) ? lanes[0] : await openLane(`fresh-${++freshLaneSeq}`, true).then(lane => (lanes.push(lane), lane));
           const selected = chooseTests(fresh.specs, tests, plan);
@@ -486,6 +493,11 @@ try {
           if (trial.timedOut) {
             fresh = null;
             assessed = { status: 'timeout', statusReason: 'Vitest did not finish before its deadline' };
+            if (!trial.disposed) {
+              hadRunnerError = true;
+              lastRunnerError = 'Timed-out Vitest lane did not close cleanly before recovery';
+              abortAfterThis = true;
+            }
           } else {
             assessed = assessTrial(trial, expected, hitLimit);
             if (mutant.effects && assessed.status === 'survived') {
@@ -493,13 +505,17 @@ try {
             }
           }
         } catch (trialError) {
-          await disposeLane(fresh);
+          const disposed = await disposeLane(fresh);
           fresh = null;
-          assessed = { status: 'error', statusReason: String(trialError?.message ?? trialError) };
+          hadRunnerError = true;
+          lastRunnerError = String(trialError?.message ?? trialError);
+          assessed = { status: 'error', statusReason: lastRunnerError };
+          if (!disposed) abortAfterThis = true;
         }
         if (sampled.has(id) && assessed.status !== settled.get(id).status) totals.mismatches.push({ id, worker: settled.get(id).status, fresh: assessed.status });
         report(mutant, { ...assessed, ...changed, ...(reasons.has(id) ? { fallback: reasons.get(id) } : {}) });
         freshDone++;
+        if (abortAfterThis) break;
       }
       totals.inWorker += settled.size;
       totals.sampled += sampled.size;
@@ -518,10 +534,14 @@ try {
       }
       await decide(extras, (mutant, result) => record({ extra: mutant.index, ...result }));
     }
-    record({ trials: { workers: totals.inWorkerUsed ? lanes.filter(lane => !lane.serial).length : 1, inWorker: totals.inWorker,
+    record({ trials: { workers: totals.inWorkerUsed ? Math.max(1, lanes.filter(lane => !lane.serial).length) : 1, inWorker: totals.inWorker,
       isolated: totals.isolated,
       ...(verifyTrials ? { verified: { sampled: totals.sampled, mismatches: totals.mismatches } } : {}) } });
-    record({ complete: true });
+    if (hadRunnerError) {
+      record({ error: lastRunnerError ?? 'Vitest fresh trial runner error' });
+    } else {
+      record({ complete: true });
+    }
   }
   exitStatus = 0;
 } catch (error) {

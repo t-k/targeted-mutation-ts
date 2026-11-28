@@ -218,29 +218,51 @@ const daemon = spawn(process.env.APP_DAEMON_BIN, ['--listen', `127.0.0.1:${apiPo
   stdio: 'inherit',
 });
 
-const vite = await createServer({
-  server: {
-    host: '127.0.0.1',
-    port: uiPort,
-    strictPort: true,
-    proxy: { '/api': `http://127.0.0.1:${apiPort}` },
-  },
+const stopDaemon = () => new Promise(resolveStop => {
+  if (daemon.exitCode !== null || daemon.signalCode !== null) return resolveStop();
+  const forceTimer = setTimeout(() => {
+    if (daemon.exitCode === null && daemon.signalCode === null) daemon.kill('SIGKILL');
+    resolveStop();
+  }, 3000);
+  daemon.once('exit', () => {
+    clearTimeout(forceTimer);
+    resolveStop();
+  });
+  daemon.kill('SIGTERM');
 });
-await vite.listen();
 
-const shutdown = async () => {
-  await vite.close().catch(() => {});
-  if (!daemon.killed) daemon.kill('SIGTERM');
-  process.exit(0);
+let vite;
+let shuttingDown = false;
+const shutdown = async (code = 0) => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  await vite?.close().catch(() => {});
+  await stopDaemon();
+  process.exit(code);
 };
-process.once('SIGINT', shutdown);
-process.once('SIGTERM', shutdown);
+process.once('SIGINT', () => { void shutdown(0); });
+process.once('SIGTERM', () => { void shutdown(0); });
 daemon.once('exit', code => {
-  vite.close().finally(() => process.exit(code ?? 1));
+  if (!shuttingDown) void shutdown(code ?? 1);
 });
+
+try {
+  vite = await createServer({
+    server: {
+      host: '127.0.0.1',
+      port: uiPort,
+      strictPort: true,
+      proxy: { '/api': { target: `http://127.0.0.1:${apiPort}`, ws: true } },
+    },
+  });
+  await vite.listen();
+} catch (error) {
+  console.error(error);
+  await shutdown(1);
+}
 ```
 
-Point a mutation-specific Playwright config's `webServer` at that wrapper (`command: 'node scripts/playwright-mutation-server.mjs'`, `url: 'http://127.0.0.1:' + port`, `reuseExistingServer: false`) and pass it with `--config`. Keep the wrapper under the project root so it runs inside each temporary trial copy and compiles the mutated UI sources directly.
+Point a mutation-specific Playwright config's `webServer` at that wrapper (`command: 'node scripts/playwright-mutation-server.mjs'`, `url: 'http://127.0.0.1:' + port`, `reuseExistingServer: false`, `gracefulShutdown: { signal: 'SIGTERM', timeout: 5000 }`) and pass it with `--config`. Keep the wrapper under the project root so it runs inside each temporary trial copy and compiles the mutated UI sources directly.
 
 ## Project configuration
 

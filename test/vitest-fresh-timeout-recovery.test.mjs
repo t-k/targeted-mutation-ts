@@ -208,3 +208,70 @@ test('structured sessionFailure stores large shared stderr once instead of dupli
   const text = renderText(report);
   assert.match(text, /Session failure: Vitest session stopped \(exit 124\)/);
 });
+
+test('--concurrency 1 recovers a fresh lane for subsequent threshold extras after the last regular fresh trial times out', () => {
+  const root = mkdtempSync(join(tmpdir(), 'tmt-vitest-c1-extras-'));
+  try {
+    mkdirSync(join(root, 'src'), { recursive: true });
+    mkdirSync(join(root, 'test'), { recursive: true });
+    writeFileSync(join(root, 'package.json'), JSON.stringify({
+      name: 'vitest-c1-extras-fixture',
+      type: 'module',
+      dependencies: { vitest: '*' },
+    }));
+    writeFileSync(join(root, 'vitest.config.ts'), `
+import { defineConfig } from 'vitest/config';
+export default defineConfig({
+  test: {
+    testTimeout: 15000,
+  },
+});
+`);
+    // `isAdult`: constant-RHS comparison that triggers a threshold extra (`17`) in `awaitsExtras`.
+    // `guarded`: hangs when mutated under `--isolated-trials --concurrency 1 --timeout 2`.
+    writeFileSync(join(root, 'src/subject.ts'), [
+      'export const isAdult = (age: number) => age >= 18;',
+      'export async function guarded(): Promise<string> {',
+      '  if (true) {',
+      '    return "ok";',
+      '  }',
+      '  await new Promise(() => {});',
+      '  return "never";',
+      '}',
+    ].join('\n') + '\n');
+
+    writeFileSync(join(root, 'test/subject.test.ts'), [
+      'import { expect, it } from "vitest";',
+      'import { guarded, isAdult } from "../src/subject.ts";',
+      '',
+      'it("checks adult threshold with gap at 17", () => {',
+      '  expect(isAdult(20)).toBe(true);',
+      '  expect(isAdult(10)).toBe(false);',
+      '});',
+      '',
+      'it("returns ok from guarded", async () => {',
+      '  expect(await guarded()).toBe("ok");',
+      '});',
+    ].join('\n') + '\n');
+
+    const res = spawnSync(process.execPath, [
+      'bin/tmt.mjs', 'analyze', root, 'src/subject.ts',
+      '--mutators', 'full',
+      '--isolated-trials',
+      '--concurrency', '1',
+      '--timeout', '2',
+      '--baseline-timeout', '15',
+      '--format', 'json',
+    ], { encoding: 'utf8', timeout: 120_000 });
+
+    assert.equal(res.status, 0, `expected exit 0, got ${res.status}\nstderr:\n${res.stderr}\nstdout:\n${res.stdout}`);
+    const report = JSON.parse(res.stdout);
+    assert.equal(report.evaluation, 'evaluated');
+    assert.ok(report.mutants.some(m => m.status === 'timeout'), 'expected timed-out fresh trial');
+    const threshold = report.mutants.find(m => m.rule === 'comparison-threshold/v1' && m.replacement === '17');
+    assert.ok(threshold, 'expected threshold extra trial to complete after fresh timeout under --concurrency 1');
+    assert.equal(threshold.status, 'survived');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

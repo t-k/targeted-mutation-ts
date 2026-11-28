@@ -40,7 +40,8 @@ function superviseSession(workspace, temp, manifest, limit, signal) {
     });
     const finish = result => {
       closeSync(descriptor);
-      settle({ ...result, stderr: readFileSync(log, 'utf8').slice(0, 4 * 1024 * 1024) });
+      const raw = readFileSync(log, 'utf8');
+      settle({ ...result, stderr: raw.length > 4 * 1024 * 1024 ? raw.slice(-4 * 1024 * 1024) : raw });
     };
     let failure;
     child.once('error', error => { failure = error; });
@@ -151,7 +152,7 @@ export async function analyzeConventional(project, files, options) {
       files: [...new Set((options.test ?? []).map(file => inside(workspace, file)))],
       ...(options.testSpecs?.length ? { selectedSpecs: options.testSpecs.map(({ project, file }) => ({ project, file: inside(workspace, file) })) } : {}),
     }));
-    const limit = 75_000 + baselineTimeoutMs + runTimeoutMs * sessionRunnable.length;
+    const limit = 75_000 + baselineTimeoutMs + (runTimeoutMs + 10_000) * sessionRunnable.length;
     // The focused analysis names its threshold edits once it has recorded the comparisons.
     // Guarded by `finished` so a late resolution never writes after `withCopy` deletes `temp`,
     // while a write error during a live session aborts the child and propagates to the caller.

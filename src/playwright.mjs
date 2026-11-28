@@ -254,7 +254,8 @@ function supervisePlaywrightSession(workspace, temp, manifest, limit, signal) {
     });
     const finish = result => {
       closeSync(descriptor);
-      settle({ ...result, stderr: readFileSync(log, 'utf8').slice(0, 4 * 1024 * 1024) });
+      const raw = readFileSync(log, 'utf8');
+      settle({ ...result, stderr: raw.length > 4 * 1024 * 1024 ? raw.slice(-4 * 1024 * 1024) : raw });
     };
     let failure;
     child.once('error', error => { failure = error; });

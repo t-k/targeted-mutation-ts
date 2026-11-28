@@ -602,7 +602,7 @@ async function runSession() {
   };
 
   const reachedTestsForPlan = plan => {
-    const ids = plan.serverStatic ? [...passedTests.keys()] : (plan.orderedTestIds ?? []);
+    const ids = plan.orderedTestIds ?? [];
     return ids
       .map(testId => passedTests.get(testId))
       .filter(Boolean)
