@@ -425,8 +425,8 @@ function annotatePlaywrightSourceRewriteFallback(report, fallbackReason) {
   }
   for (const gap of report.diagnostics ?? []) {
     if (gap.verification?.baselineWithWitness === 'passed' && gap.verification?.rewriteWithWitness === 'failed') {
+      // A verified witness confirms only the specific site it exercised, not other mutants in the same file.
       if (gap.site) confirmedSites.add(gap.site);
-      if (gap.location?.file) confirmedFiles.add(gap.location.file);
     }
   }
   const isConfirmed = mutant => {

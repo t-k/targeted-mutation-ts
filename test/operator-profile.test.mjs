@@ -171,9 +171,14 @@ test('--audit and sessions that cannot start fall back to one source rewrite per
   assert.equal(mixedFilesReport.mutants.find(m => m.site === 'ui1').status, 'unevaluated');
   assert.equal(mixedFilesReport.diagnostics.length, 0);
 
-  // Verified `--spec` witness (`baselineWithWitness: 'passed'` + `rewriteWithWitness: 'failed'`) establishes application even with 0 kills.
+  // Verified `--spec` witness (`baselineWithWitness: 'passed'` + `rewriteWithWitness: 'failed'`) confirms only
+  // the verified site; another unverified mutant in the same file still becomes `unevaluated`.
   const verifiedWitnessRewrite = {
     ...allSurvivedRewrite,
+    mutants: [
+      ...allSurvivedRewrite.mutants,
+      { site: 's2', location: { file: 'src/Overview.tsx', line: 14, column: 1, start: 20, end: 25 }, rule: 'comparison-boundary/v1', edit: [20, 25], replacement: '<', status: 'survived', evidence: 'reexecuted' },
+    ],
     diagnostics: [
       {
         kind: 'SURVIVED',
@@ -181,6 +186,13 @@ test('--audit and sessions that cannot start fall back to one source rewrite per
         location: { file: 'src/Overview.tsx', line: 10, column: 1 },
         rule: 'comparison-boundary/v1',
         verification: { baselineWithWitness: 'passed', rewriteWithWitness: 'failed' },
+      },
+      {
+        kind: 'SURVIVED',
+        site: 's2',
+        location: { file: 'src/Overview.tsx', line: 14, column: 1 },
+        rule: 'comparison-boundary/v1',
+        mutations: [{ rule: 'comparison-boundary/v1', replacement: '<' }],
       },
     ],
   };
@@ -191,10 +203,11 @@ test('--audit and sessions that cannot start fall back to one source rewrite per
     completeAnalysis: () => focusedReport,
     analyzeConventional: async () => sessionReport,
   });
-  assert.equal(verifiedWitnessReport.sourceApplication, undefined);
-  assert.equal(verifiedWitnessReport.evaluation, 'evaluated');
-  assert.equal(verifiedWitnessReport.mutants[0].status, 'survived');
-  assert.equal(verifiedWitnessReport.diagnostics.length, 1);
+  assert.equal(verifiedWitnessReport.sourceApplication, 'unconfirmed');
+  assert.equal(verifiedWitnessReport.evaluation, 'incomplete');
+  assert.equal(verifiedWitnessReport.mutants.find(m => m.site === 's1').status, 'survived');
+  assert.equal(verifiedWitnessReport.mutants.find(m => m.site === 's2').status, 'unevaluated');
+  assert.deepEqual(verifiedWitnessReport.diagnostics.map(d => d.site), ['s1']);
 
   // When every fallback trial times out (0 kills, 0 survivors), retain `timeout` status while flagging unconfirmed application.
   const allTimeoutRewrite = {

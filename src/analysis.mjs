@@ -159,7 +159,7 @@ function makeAttempt(root, subjects, runner, copyExclude, probeChecks, settings 
       writeFileSync(path, readFileSync(inside(workspace, witness.content)), { flag: 'wx' });
       witnessFile = relative(workspace, path);
     }
-    const result = runner(workspace, temp, { trace, active: activate, product: true, probePreload, synchronousTrace, isBaseline });
+    const result = runner(workspace, temp, { trace, active: activate, product: true, probePreload, synchronousTrace, isBaseline, witnessFile });
     if (!tracing && collect) {
       const path = resolve(workspace, collect);
       return { ...result, collected: existsSync(path) ? readFileSync(path, 'utf8') : '' };
@@ -180,11 +180,12 @@ export function sourceTrials(root, subjects, options) {
   const runner = options.runner === 'playwright'
     ? (workspace, temp, settings) => {
       const effectiveTimeout = settings?.isBaseline ? (options['baseline-timeout'] ?? options.timeout) : options.timeout;
+      const tests = options.test?.length && settings?.witnessFile ? [...options.test, settings.witnessFile] : options.test;
       return runPlaywright(workspace, temp, {
         config: options.config,
         projects: options.project,
         original: root,
-        tests: options.test,
+        tests,
         ...(effectiveTimeout ? { timeout: effectiveTimeout * 1000 } : {}),
       });
     }
@@ -566,8 +567,13 @@ function verifyWitnessRuns(baseline, original, changed) {
 
 function analyzePlaywright(root, subjects, report, options, specification) {
   const baselineTimeoutSeconds = options['baseline-timeout'] ?? options.timeout ?? 60;
-  const runner = (workspace, temp, settings) => runPlaywright(workspace, temp, { config: options.config, projects: options.project, original: root,
-    tests: options.test, timeout: (settings?.isBaseline ? baselineTimeoutSeconds : (options.timeout ?? 60)) * 1000 });
+  const runner = (workspace, temp, settings) => runPlaywright(workspace, temp, {
+    config: options.config,
+    projects: options.project,
+    original: root,
+    tests: options.test?.length && settings?.witnessFile ? [...options.test, settings.witnessFile] : options.test,
+    timeout: (settings?.isBaseline ? baselineTimeoutSeconds : (options.timeout ?? 60)) * 1000,
+  });
   const probeChecks = new Map(subjects.map(subject => [subject, createProbePreloadCheck(subject.input)]));
   const attempt = settings => makeAttempt(root, subjects, runner, options['copy-exclude'], probeChecks, settings);
   const baseline = attempt({ isBaseline: true });
