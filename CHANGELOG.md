@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.10.0
+
+- Add `--copy-include <PATH>` (`"copyInclude"` in `targeted-mutation.config.json`) to re-include generated files or nested directories excluded by `--copy-exclude` or `--copy-exclude-gitignore`, and emit actionable `baseline.hints` when a baseline import-resolution failure matches a gitignored exclusion.
+- Add `--exclude <PATTERN>` (`"exclude"` in `targeted-mutation.config.json`) and `!PATTERN` entries in `files` to exclude files, directories, or globs from mutation while keeping them in temporary copies so tests can import them.
+- Automatically default `[PROJECT]` to `.` in `targeted-mutation analyze [PROJECT] [FILE...]` when the first positional argument is a file, glob, negated pattern, or non-project subdirectory inside the current project, while preserving explicit `analyze DIR FILE|GLOB` invocations and project-directory resolution.
+- Surface isolated fallback reasons across mutant results (`fallback`), `trials.fallbackReasons` counts in JSON reports, and `--progress` output (`isolated fallback: <reason>`), including `isolated-trials` and `baseline-records-unmatched` alongside per-mutant session reasons.
+- Replace `"Stryker was here!"` / `` `Stryker was here!` `` / `["Stryker was here"]` built-in mutation literals with `"tmt-mutated"` / `` `tmt-mutated` `` / `["tmt-mutated"]`.
+- Support an optional `reason` field on baseline v2 findings, preserve existing user-written reasons across `--write-baseline` rewrites (refusing to silently overwrite malformed baseline files), and expose suppressed reasons in `report.suppressed.reasons`.
+- Add Node.js 26 LTS to the GitHub Actions CI test matrix (`ubuntu-24.04` and `macos-15`).
+
 ## 0.9.2
 
 - Persist settled Vitest warm verdicts into the durable `--checkpoint` file before entering isolated fallback:
