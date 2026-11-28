@@ -531,6 +531,13 @@ export function renderText(report, { verbose = false, onlyGaps = false } = {}) {
     const mismatchCount = verified.mismatches?.length ?? 0;
     lines.push(`Verified ${plural(verified.sampled, 'session trial')} in isolated runs (${plural(mismatchCount, 'mismatch', 'mismatches')}).`);
   }
+  if (report.trials?.isolated > 0 && report.trials?.fallbackReasons && Object.keys(report.trials.fallbackReasons).length > 0) {
+    const breakdown = Object.entries(report.trials.fallbackReasons)
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .map(([reason, count]) => `${count} ${printable(reason)}`)
+      .join(', ');
+    lines.push(`Isolated fallback (${report.trials.isolated}): ${breakdown}.`);
+  }
   if (isListed && mutants.some(m => (m.rule ?? m.mutatorName) === 'comparison-boundary/v1' || m.operatorSwap)) {
     lines.push('Note: integer threshold and margin edits synthesized from runtime observations are added during analysis.');
   }

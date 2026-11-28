@@ -492,3 +492,76 @@ test('Codex Round 1 regressions: explicit DIR FILE compatibility, absolute symli
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('Follow-up feedback: isolated fallback text summary, parallel isolated execution, nullish-fallback INPUT GAP on undefined-only tests, and uniform mutant id/rule/original shape', async () => {
+  // 1. Text summary prints one-line Isolated fallback breakdown sorted by count.
+  const summaryText = renderText({
+    runner: 'vitest',
+    evaluation: 'evaluated',
+    baseline: { status: 'passed', tests: 4 },
+    trials: { workers: 2, inWorker: 10, isolated: 193, fallbackReasons: { 'tests-changed': 13, 'control-differs': 180 } },
+    mutants: [{ id: 'm1', rule: 'StringLiteral', location: { file: 'src/a.ts', line: 1, column: 1 }, status: 'killed', original: '""', replacement: '"tmt-mutated"' }],
+    diagnostics: [],
+  });
+  assert.match(summaryText, /Isolated fallback \(193\): 180 control-differs, 13 tests-changed\./);
+
+  // 2. End-to-end Vitest: nullish-fallback/v1 with string|undefined left side tested only with undefined
+  //    must NOT be hidden as `ignored` — it must surface as `INPUT GAP`!
+  //    Also verify parallel isolated trials (`--concurrency 2 --isolated-trials`) and uniform mutant shape (`id`, `rule`, `original`).
+  const dir = mkdtempSync(join(tmpdir(), 'tmt-followup-ux-'));
+  try {
+    mkdirSync(join(dir, 'src'), { recursive: true });
+    mkdirSync(join(dir, 'test'), { recursive: true });
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'followup-ux', type: 'module' }));
+    symlinkSync(repoNodeModules, join(dir, 'node_modules'), 'junction');
+    writeFileSync(join(dir, 'src/preview.ts'), [
+      'export function label(orgName: string | undefined, orgId: string, limit: number) {',
+      '  const name = orgName ?? orgId;',
+      '  return name.length >= limit ? name : orgId;',
+      '}',
+    ].join('\n') + '\n');
+    writeFileSync(join(dir, 'test/preview.test.ts'), [
+      "import { expect, it } from 'vitest';",
+      "import { label } from '../src/preview.ts';",
+      "it('falls back when orgName is undefined', () => {",
+      "  expect(label(undefined, 'org-1', 3)).toBe('org-1');",
+      "  expect(label(undefined, 'org-1', 10)).toBe('org-1');",
+      '});',
+    ].join('\n') + '\n');
+
+    const run = spawnSync(process.execPath, [
+      cli, 'analyze', 'src/preview.ts', '--mutators', 'full', '--isolated-trials', '--concurrency', '2', '--format', 'json',
+    ], { cwd: dir, encoding: 'utf8', timeout: 60_000 });
+    assert.equal(run.status, 0, run.stderr);
+    const report = JSON.parse(run.stdout);
+    assert.equal(report.evaluation, 'evaluated');
+
+    // `orgName ?? orgId` -> `(orgName || orgId)` must be survived + INPUT GAP, NEVER ignored!
+    const nullishMut = report.mutants.find(m => m.rule === 'nullish-fallback/v1');
+    assert.ok(nullishMut, JSON.stringify(report.mutants));
+    assert.equal(nullishMut.status, 'survived', JSON.stringify(nullishMut));
+    const nullishGap = report.diagnostics.find(d => d.rule === 'nullish-fallback/v1');
+    assert.ok(nullishGap, JSON.stringify(report.diagnostics));
+    assert.equal(nullishGap.kind, 'INPUT GAP');
+
+    // Every mutant in JSON report has unique `id`, non-empty `rule`, and `original` matching its edit span.
+    const seenIds = new Set();
+    const previewBytes = readFileSync(join(dir, 'src/preview.ts'));
+    for (const mutant of report.mutants) {
+      assert.equal(typeof mutant.id, 'string', JSON.stringify(mutant));
+      assert.ok(mutant.id.length > 0, JSON.stringify(mutant));
+      assert.equal(seenIds.has(mutant.id), false, `Duplicate mutant id: ${mutant.id}`);
+      seenIds.add(mutant.id);
+      assert.equal(typeof mutant.rule, 'string', JSON.stringify(mutant));
+      assert.ok(mutant.rule.length > 0, JSON.stringify(mutant));
+      assert.equal(typeof mutant.original, 'string', JSON.stringify(mutant));
+      if (Array.isArray(mutant.edit) && mutant.edit.length === 2) {
+        assert.equal(mutant.original, previewBytes.subarray(mutant.edit[0], mutant.edit[1]).toString('utf8'), JSON.stringify(mutant));
+      }
+    }
+    assert.ok(report.trials?.isolated >= 2, JSON.stringify(report.trials));
+    assert.ok(report.trials?.fallbackReasons?.['isolated-trials'] >= 2, JSON.stringify(report.trials));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

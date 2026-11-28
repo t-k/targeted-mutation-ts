@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.10.1
+
+- Parallelize Vitest isolated fallback trials across up to `--concurrency` reusable serial fresh lanes when `--isolated-trials` is not forced and the project does not configure `globalSetup` or `fileParallelism: false`, and print a one-line `Isolated fallback (N): ...` breakdown in text output.
+- Stop hiding surviving `nullish-fallback/v1` (`??` -> `||`) edits as `ignored` solely because tests never passed a falsy primitive; rely on TypeScript type-based equivalence (`--type-check`) for truly non-falsy object types and report unobserved falsy inputs as `INPUT GAP`.
+- Normalize JSON `mutants[]` entries across all runners and profiles so every mutant includes a unique `id`, a `rule` name (falling back to `mutatorName` for built-in syntax mutators), and an exact `original` snippet matching its `edit` byte span while keeping existing `site`, `mutatorName`, and `operator` fields for backward compatibility.
+- Fix Node.js 26 LTS compatibility in the native compiler validation addon (`v8::Isolate::GetCurrent()`) and compiler certification tests when `module.stripTypeScriptTypes(..., { mode: 'transform' })` falls back to TypeScript.
+- Document default exit codes (`0` with gaps, `2` with `--fail-on-gaps` / `"failOnGaps": true`) and pnpm `minimumReleaseAge` guidance in `README.md`.
+
 ## 0.10.0
 
 - Add `--copy-include <PATH>` (`"copyInclude"` in `targeted-mutation.config.json`) to re-include generated files or nested directories excluded by `--copy-exclude` or `--copy-exclude-gitignore`, and emit actionable `baseline.hints` when a baseline import-resolution failure matches a gitignored exclusion.

@@ -272,6 +272,10 @@ try {
   const distinctBaselineLane = baselineWorkers !== undefined && baselineWorkers !== trialWorkers;
   const baselineLane = await openLane('baseline', false, distinctBaselineLane ? baselineWorkers : undefined);
   lanes.push(baselineLane);
+  const projectHasSharedStateConfig = baselineLane.context.projects.some(project =>
+    (Array.isArray(project.config?.globalSetup) ? project.config.globalSetup.length > 0 : Boolean(project.config?.globalSetup)) ||
+    project.config?.fileParallelism === false);
+  const freshLanePool = [];
   const { specs } = baselineLane;
   const discovered = new Set(specs.map(spec => inside(workspace, spec.moduleId)));
   if (files.length && (files.some(file => !discovered.has(file)) || discovered.size !== files.length)) {
@@ -320,14 +324,7 @@ try {
         settledBeforeDecide++;
         continue;
       }
-      // `??` and `||` give the same for null, undefined and every object. Where no test gave the left side a value
-      // of a type that has a falsy one, the two are taken for the same code and the edit is not tried.
       const seen = agreement.get(id);
-      if (mutant.evidence && seen && !seen.differing.size && !seen.unsure.size && !seen.outside && !seen.outsideUnsure && !seen.typed) {
-        record({ id, status: 'ignored', statusReason: 'No test gives the left side a number, a string or a boolean, so both operators are taken to behave alike here' });
-        settledBeforeDecide++;
-        continue;
-      }
       // `expr[0]` on a plain map or `arguments` object is not a sequence: mutating to `.at(-1)` would only raise
       // a TypeError noise kill. Never skip if any baseline evaluation threw (exception behavior is unverified).
       if (mutant.sequenceIndex && seen && !seen.sequence && seen.nonSequence && !seen.threw && !seen.differing.size && !seen.outside) {
@@ -337,7 +334,6 @@ try {
       }
       pending.push({ mutant, plan });
     }
-    let fresh;
     let hadRunnerError = false;
     let lastRunnerError = null;
     let abortSession = false;
@@ -468,68 +464,93 @@ try {
       }
       const trialTimeoutSeconds = Math.max(1, Math.round(runTimeout / 1000));
       let freshDone = 0;
-      for (const { mutant, plan } of freshQueue) {
-        const { id } = mutant;
-        const expected = plan.staticActivation || !supportsIds ? tests : new Map([...plan.covered].map(testId => [testId, tests.get(testId)]));
-        const fallbackReason = sampled.has(id)
-          ? undefined
-          : (reasons.get(id) ?? (isolatedTrials ? 'isolated-trials' : (plans === null ? 'baseline-records-unmatched' : 'not-answered')));
-        if (!sampled.has(id)) {
-          totals.isolated++;
-          if (fallbackReason) {
-            totals.fallbackReasons[fallbackReason] = (totals.fallbackReasons[fallbackReason] ?? 0) + 1;
-          }
-        }
-        if (trackProgress) {
-          record({
-            progress: {
-              completed: settledBeforeDecide + persistedWarm + freshDone,
-              stage: 'isolated',
-              trialTimeoutSeconds,
-              ...(fallbackReason ? { reason: fallbackReason } : {}),
-            },
-          });
-        }
-        // A fresh run stops at its first failing test. Beside each other, test files would be cut off mid-run,
-        // so these runs take the files one by one.
-        let assessed;
-        let changed = {};
+      let nextFreshIndex = 0;
+      // Preserve strictly serial execution when `--isolated-trials` is requested (stateful suites)
+      // or when the project configures globalSetup / fileParallelism: false; otherwise parallelize
+      // isolated fallback trials across reusable serial fresh lanes up to `concurrency`.
+      const allowParallelFresh = !isolatedTrials && !projectHasSharedStateConfig && concurrency > 1;
+      const freshWorkers = allowParallelFresh ? Math.max(1, Math.min(concurrency, freshQueue.length)) : 1;
+      const acquireFreshLane = async workerSlot => {
+        if (freshLanePool.length) return freshLanePool.pop();
+        if (workerSlot === 0 && beside === oneByOne && lanes[0]) return lanes[0];
+        const opened = await openLane(`fresh-${++freshLaneSeq}`, true);
+        lanes.push(opened);
+        return opened;
+      };
+      const runFreshWorker = async workerSlot => {
+        let workerLane = null;
         try {
-          fresh ??= (beside === oneByOne && lanes[0]) ? lanes[0] : await openLane(`fresh-${++freshLaneSeq}`, true).then(lane => (lanes.push(lane), lane));
-          const selected = chooseTests(fresh.specs, tests, plan);
-          const hitLimit = plan.hits * 100;
-          const trial = await run(selected, { id, phase: 'trial', active: mutant.active ?? id, shift: mutant.shift, hitLimit,
-            staticActivation: plan.staticActivation }, fresh);
-          if (trial.timedOut) {
-            fresh = null;
-            assessed = { status: 'timeout', statusReason: 'Vitest did not finish before its deadline' };
-            if (!trial.disposed) {
+          while (!abortSession) {
+            const idx = nextFreshIndex++;
+            if (idx >= freshQueue.length) break;
+            const { mutant, plan } = freshQueue[idx];
+            const { id } = mutant;
+            const expected = plan.staticActivation || !supportsIds ? tests : new Map([...plan.covered].map(testId => [testId, tests.get(testId)]));
+            const fallbackReason = sampled.has(id)
+              ? undefined
+              : (reasons.get(id) ?? (isolatedTrials ? 'isolated-trials' : (plans === null ? 'baseline-records-unmatched' : 'not-answered')));
+            if (!sampled.has(id)) {
+              totals.isolated++;
+              if (fallbackReason) {
+                totals.fallbackReasons[fallbackReason] = (totals.fallbackReasons[fallbackReason] ?? 0) + 1;
+              }
+            }
+            if (trackProgress) {
+              record({
+                progress: {
+                  completed: settledBeforeDecide + persistedWarm + freshDone,
+                  stage: 'isolated',
+                  trialTimeoutSeconds,
+                  ...(fallbackReason ? { reason: fallbackReason } : {}),
+                },
+              });
+            }
+            let assessed;
+            let changed = {};
+            try {
+              workerLane ??= await acquireFreshLane(workerSlot);
+              const selected = chooseTests(workerLane.specs, tests, plan);
+              const hitLimit = plan.hits * 100;
+              const trial = await run(selected, { id, phase: 'trial', active: mutant.active ?? id, shift: mutant.shift, hitLimit,
+                staticActivation: plan.staticActivation }, workerLane);
+              if (trial.timedOut) {
+                workerLane = null;
+                assessed = { status: 'timeout', statusReason: 'Vitest did not finish before its deadline' };
+                if (!trial.disposed) {
+                  hadRunnerError = true;
+                  lastRunnerError = 'Timed-out Vitest lane did not close cleanly before recovery';
+                  abortSession = true;
+                }
+              } else {
+                assessed = assessTrial(trial, expected, hitLimit);
+                if (assessed.status === 'error') {
+                  hadRunnerError = true;
+                  lastRunnerError ??= assessed.statusReason ?? 'Vitest fresh trial error';
+                }
+                if (mutant.effects && assessed.status === 'survived') {
+                  changed = { effects: effectsOf(reachOfRecords(trial.records, expected.keys())) };
+                }
+              }
+            } catch (trialError) {
+              const disposed = await disposeLane(workerLane);
+              workerLane = null;
               hadRunnerError = true;
-              lastRunnerError = 'Timed-out Vitest lane did not close cleanly before recovery';
-              abortSession = true;
+              lastRunnerError = String(trialError?.message ?? trialError);
+              assessed = { status: 'error', statusReason: lastRunnerError };
+              if (!disposed) abortSession = true;
             }
-          } else {
-            assessed = assessTrial(trial, expected, hitLimit);
-            if (assessed.status === 'error') {
-              hadRunnerError = true;
-              lastRunnerError ??= assessed.statusReason ?? 'Vitest fresh trial error';
-            }
-            if (mutant.effects && assessed.status === 'survived') {
-              changed = { effects: effectsOf(reachOfRecords(trial.records, expected.keys())) };
-            }
+            if (sampled.has(id) && assessed.status !== settled.get(id).status) totals.mismatches.push({ id, worker: settled.get(id).status, fresh: assessed.status });
+            report(mutant, { ...assessed, ...changed, ...(fallbackReason ? { fallback: fallbackReason } : {}) });
+            freshDone++;
           }
-        } catch (trialError) {
-          const disposed = await disposeLane(fresh);
-          fresh = null;
-          hadRunnerError = true;
-          lastRunnerError = String(trialError?.message ?? trialError);
-          assessed = { status: 'error', statusReason: lastRunnerError };
-          if (!disposed) abortSession = true;
+        } finally {
+          if (workerLane && lanes.includes(workerLane) && !freshLanePool.includes(workerLane)) {
+            freshLanePool.push(workerLane);
+          }
         }
-        if (sampled.has(id) && assessed.status !== settled.get(id).status) totals.mismatches.push({ id, worker: settled.get(id).status, fresh: assessed.status });
-        report(mutant, { ...assessed, ...changed, ...(fallbackReason ? { fallback: fallbackReason } : {}) });
-        freshDone++;
-        if (abortSession) break;
+      };
+      if (freshQueue.length) {
+        await Promise.all(Array.from({ length: freshWorkers }, (_, slot) => runFreshWorker(slot)));
       }
       totals.inWorker += settled.size;
       totals.sampled += sampled.size;

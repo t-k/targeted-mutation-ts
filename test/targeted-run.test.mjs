@@ -48,14 +48,13 @@ test('the targeted profile names the missing input of each survivor and keeps th
   const verdict = (original, replacement) => report.mutants.find(mutant => mutant.original === original && mutant.replacement === replacement)?.status;
   const gap = replacement => report.diagnostics.find(entry => entry.mutations[0].replacement === replacement);
 
-  // `??` for `||`: a number was seen and never 0, so the input is missing. For an object no input can tell them apart.
+  // `??` for `||`: without TypeScript type information, unobserved falsy inputs report an INPUT GAP rather than being hidden as ignored.
   assert.equal(verdict('count ?? 10', '(count || 10)'), 'survived');
   assert.equal(gap('(count || 10)').kind, 'INPUT GAP');
   assert.match(gap('(count || 10)').missing, /`count` is 0, 0n, '', false or NaN and not the right side's value/);
   assert.equal(gap('(count || 10)').reachedBy, 1);
-  assert.equal(verdict("user ?? { name: 'anon' }", "(user || { name: 'anon' })"), 'ignored');
-  // An edit that was not tried has no evidence of a run.
-  assert.equal(report.mutants.find(mutant => mutant.status === 'ignored').evidence, undefined);
+  assert.equal(verdict("user ?? { name: 'anon' }", "(user || { name: 'anon' })"), 'survived');
+  assert.equal(gap("(user || { name: 'anon' })").kind, 'INPUT GAP');
   assert.equal(verdict('count ?? 10', '(count, 10)'), 'killed');
 
   // A test passed `saving` as true and asserted nothing: the input is there and the assertion is missing.

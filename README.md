@@ -67,6 +67,8 @@ During the baseline run, `targeted-mutation` records the runtime values flowing 
 npm install --save-dev targeted-mutation
 ```
 
+> **Note for pnpm users with `minimumReleaseAge`:** right after a new release, `pnpm add -D targeted-mutation` may prompt to add `targeted-mutation` and its `@targeted-mutation/tmt-*` platform packages to `minimumReleaseAgeExclude` until the release age threshold passes.
+
 Requirements:
 
 - Node.js 22.18 or later in the 22 line, or 24.11 or later (including Node.js 26 LTS).
@@ -95,9 +97,9 @@ npx targeted-mutation analyze --runner node --test 'test/*.test.mjs' . src/app.m
 npx targeted-mutation analyze --exclude-rule nullish-equality/v1 --copy-exclude-gitignore --test 'src/lib/**/*.test.ts'
 ```
 
-`tmts` is a short alias for the same command. `targeted-mutation --help` lists every option. Project defaults (`runner`, `files`, `tests`, `projects`, `mutators`, `timeout`, `baselineTimeout`, `copyExclude`, `copyExcludeGitignore`, `excludeRules`, `deterministic`, `displaceThresholds`, `failOnGaps`, etc.) can also be placed in `targeted-mutation.config.json`, `targeted-mutation.config.mjs`, or `package.json#targetedMutation`; see [Project configuration](docs/analysis.md#project-configuration).
+`tmts` is a short alias for the same command. `targeted-mutation --help` lists every option. Project defaults (`runner`, `files`, `exclude`, `tests`, `projects`, `mutators`, `timeout`, `baselineTimeout`, `copyExclude`, `copyInclude`, `copyExcludeGitignore`, `excludeRules`, `deterministic`, `displaceThresholds`, `failOnGaps`, etc.) can also be placed in `targeted-mutation.config.json`, `targeted-mutation.config.mjs`, or `package.json#targetedMutation`; see [Project configuration](docs/analysis.md#project-configuration).
 
-The exit status is 0 after a completed analysis, including one that reports gaps, and 1 when the suite fails before any edit, a file cannot be parsed, or the arguments are invalid.
+> **Exit codes:** `analyze` exits with `0` by default even when test gaps are reported (`1` on baseline/runner/parse/argument errors). Pass `--fail-on-gaps` (or set `"failOnGaps": true` in `targeted-mutation.config.json`) to exit with code `2` when one or more test gaps remain.
 
 ### Reading the report
 

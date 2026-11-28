@@ -81,10 +81,12 @@ export function listCandidates(project, files, options = {}) {
     for (const site of subject.sites) {
       boundaryKeys.add(`${site.location.file}:${site.edit[0]}:${site.replacement}`);
       candidates.push({
+        id: site.id,
         site: site.id,
         rule: site.rule,
         location: site.location,
         operator: site.operator,
+        original: site.original ?? site.operator,
         edit: site.edit,
         replacement: site.replacement,
         status: 'listed',
@@ -115,7 +117,9 @@ export function listCandidates(project, files, options = {}) {
     if (mutant.operatorSwap && boundaryKeys.has(`${mutant.location.file}:${mutant.operatorSwap.join(':')}`)) continue;
     const { source: _source, operatorSwap: _swap, targeted: _targeted, ...rest } = mutant;
     candidates.push({
-      ...(profile === 'full' ? rest : { site: rest.id, rule: rest.mutatorName, ...rest, id: undefined, mutatorName: undefined }),
+      ...(profile === 'full'
+        ? { ...rest, rule: rest.rule ?? rest.mutatorName }
+        : { id: rest.id, site: rest.id, rule: rest.mutatorName, ...rest, mutatorName: undefined }),
       status: mutant.status ?? 'listed',
     });
   }

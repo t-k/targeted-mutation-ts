@@ -620,15 +620,6 @@ async function runSession() {
       continue;
     }
     const seen = indexed.agreement.get(id);
-    if (mutant.evidence && seen && !seen.differing.size && !seen.unsure.size && !seen.outside && !seen.outsideUnsure && !seen.typed) {
-      record({
-        id,
-        status: 'ignored',
-        statusReason: 'No test gives the left side a number, a string or a boolean, so both operators are taken to behave alike here',
-      });
-      completedCount++;
-      continue;
-    }
     if (mutant.sequenceIndex && seen && !seen.sequence && seen.nonSequence && !seen.threw && !seen.differing.size && !seen.outside) {
       record({
         id,

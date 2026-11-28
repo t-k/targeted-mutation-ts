@@ -599,7 +599,9 @@ function analyzePlaywright(root, subjects, report, options, specification) {
       const trial = { site, edit: site.edit, replacement: site.replacement, source: site.source };
       const mutant = attempt({ trial });
       const result = {
-        site: site.id, location: site.location, rule: site.rule, operator: site.operator, original: site.original, edit: site.edit,
+        id: site.id, site: site.id, location: site.location, rule: site.rule, operator: site.operator,
+        original: site.original ?? subject.input.subarray(site.edit[0], site.edit[1]).toString('utf8'),
+        edit: site.edit,
         replacement: site.replacement, status: verdict(mutant, baseline), evidence: 'reexecuted', run: playwrightSummary(mutant),
         ...(mutant.statusReason ? { statusReason: mutant.statusReason } : {}),
       };
@@ -672,11 +674,12 @@ function restoreNodeCheckpointMutant(site, cached) {
   const { diagnostic, ...outcome } = cached;
   return {
     result: {
+      id: site.id,
       site: site.id,
       location: site.location,
       rule: site.rule,
       operator: site.operator,
-      original: site.original,
+      original: site.original ?? site.operator,
       edit: site.edit,
       replacement: site.replacement,
       ...outcome,
@@ -689,11 +692,12 @@ function restoreNodeCheckpointMutant(site, cached) {
 function buildNodeTrialResult(site, mutant, baseline) {
   const status = verdict(mutant, baseline);
   const result = {
+    id: site.id,
     site: site.id,
     location: site.location,
     rule: site.rule,
     operator: site.operator,
-    original: site.original,
+    original: site.original ?? site.operator,
     edit: site.edit,
     replacement: site.replacement,
     status,
@@ -1009,15 +1013,24 @@ export function prepareAnalysisFromTrace(project, files, options, recordedBaseli
 
 // Runs the planned trials. `settled` answers a trial that another run already decided: it returns
 // { status, tests } for the same edit, or nothing when this analysis has to run the edit itself.
-export function completeAnalysis({ root, report, options, attempt, baseline, traced, trace, trials, skips, serverStaticSites }, settled = () => undefined) {
+export function completeAnalysis({ root, report, options, attempt, baseline, traced, trace, trials, skips, subjects, serverStaticSites }, settled = () => undefined) {
   report.evaluation = 'evaluated';
   let plainFallbackBaseline = null;
+  const inputByFile = new Map((subjects ?? []).map(subject => [subject.file, subject.input]));
 
   for (const [index, trial] of trials.entries()) {
     const predicted = skips.has(index);
     const { site } = trial;
+    const sourceBytes = inputByFile.get(site.location?.file);
+    const editOriginal = sourceBytes && Array.isArray(trial.edit)
+      ? sourceBytes.subarray(trial.edit[0], trial.edit[1]).toString('utf8')
+      : (site.original ?? site.operator);
+    const mutantId = trial.rule === site.rule
+      ? site.id
+      : `${site.id}:${trial.rule}:${trial.edit[0]}:${trial.edit[1]}:${trial.replacement}`;
     const result = {
-      site: site.id, location: site.location, rule: trial.rule, operator: site.operator, original: site.original,
+      id: mutantId, site: site.id, location: site.location, rule: trial.rule, operator: site.operator,
+      original: editOriginal,
       edit: trial.edit, replacement: trial.replacement, equivalentOnSafeIntegers: trial.equivalentOnSafeIntegers,
       status: predicted ? 'survived' : 'unevaluated', evidence: predicted ? 'predicted' : 'reexecuted',
     };
